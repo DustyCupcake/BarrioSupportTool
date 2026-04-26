@@ -20,7 +20,22 @@ function render(container) {
         <div class="page-title">Barrios</div>
         <div class="page-subtitle">Manage the camps and groups that can check out equipment</div>
       </div>
-      <button class="btn primary sm" onclick="window._barrios.openAdd()">+ Add barrio</button>
+      <div class="btn-group">
+        <button class="btn primary sm" onclick="window._barrios.openAdd()">+ Add barrio</button>
+        <button class="btn sm" onclick="window._barrios.openImport()">Import</button>
+      </div>
+    </div>
+
+    <div class="form-card" id="import-form" style="display:none">
+      <h2>Import barrios</h2>
+      <p style="margin:0 0 12px;color:var(--text2);font-size:14px">Paste a comma- or semicolon-separated list of names.</p>
+      <div class="field">
+        <textarea id="import-names" rows="4" placeholder="El Corazón, La Palma; Centro..." style="width:100%;box-sizing:border-box"></textarea>
+      </div>
+      <div class="form-actions">
+        <button class="btn primary sm" onclick="window._barrios.runImport()">Import</button>
+        <button class="btn sm" onclick="window._barrios.closeImport()">Cancel</button>
+      </div>
     </div>
 
     <div class="form-card" id="barrio-form" style="display:none">
@@ -45,7 +60,7 @@ function render(container) {
     </div>
   `;
 
-  window._barrios = { openAdd, openEdit, save, closeForm, remove: removeBarrio };
+  window._barrios = { openAdd, openEdit, save, closeForm, remove: removeBarrio, openImport, closeImport, runImport };
 }
 
 async function load(container) {
@@ -68,13 +83,11 @@ function renderTable(wrap) {
   }
   wrap.innerHTML = `
     <table class="data-table">
-      <thead><tr><th>Name</th><th>Sort</th><th>Created</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th></th></tr></thead>
       <tbody>
         ${_barrios.map(b => `
           <tr>
             <td>${esc(b.name)}</td>
-            <td>${b.sort_order}</td>
-            <td style="font-size:12px;color:var(--text3)">${fmtDate(b.created_at)}</td>
             <td>
               <div class="table-actions">
                 <button class="action-btn" onclick="window.open('/api/admin/barrio-qr?id=${b.id}','_blank')">QR</button>
@@ -111,6 +124,47 @@ function openEdit(id) {
 
 function closeForm() {
   document.getElementById('barrio-form').style.display = 'none';
+}
+
+function openImport() {
+  closeForm();
+  document.getElementById('import-names').value = '';
+  document.getElementById('import-form').style.display = '';
+  document.getElementById('import-names').focus();
+}
+
+function closeImport() {
+  document.getElementById('import-form').style.display = 'none';
+  document.getElementById('import-names').value = '';
+}
+
+async function runImport() {
+  const raw = document.getElementById('import-names').value;
+  const names = [...new Set(
+    raw.split(/[,;]+/).map(s => s.trim()).filter(Boolean)
+  )];
+
+  if (!names.length) { _toast('No names found'); return; }
+
+  let created = 0;
+  let skipped = 0;
+
+  for (const name of names) {
+    try {
+      await post('/admin/barrios', { name, sort_order: 0 });
+      created++;
+    } catch (e) {
+      if (e.status === 409) skipped++;
+      else { _toast('Error: ' + e.message); return; }
+    }
+  }
+
+  const msg = skipped
+    ? `Imported ${created} barrio${created !== 1 ? 's' : ''} (${skipped} already existed)`
+    : `Imported ${created} barrio${created !== 1 ? 's' : ''}`;
+  _toast(msg);
+  closeImport();
+  await load();
 }
 
 async function save() {

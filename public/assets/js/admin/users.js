@@ -2,7 +2,7 @@
  * Admin users section — list, create, update, deactivate, reset password.
  */
 
-import { get, post, put, del } from '../api.js';
+import { get, post, put } from '../api.js';
 
 let _toast;
 let _users = [];
@@ -26,7 +26,7 @@ function renderShell(container) {
     <div id="user-table-area"><div class="empty"><span class="spinner"></span></div></div>
   `;
 
-  window._users = { openAdd, openEdit, save, remove, resetPwd, closeForm };
+  window._users = { openAdd, openPanel, save, savePwd, toggleActive, closeForm };
 }
 
 async function load() {
@@ -48,22 +48,15 @@ function renderTable() {
 
   area.innerHTML = `
     <table class="data-table">
-      <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th>Last login</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th>Last login</th></tr></thead>
       <tbody>
         ${_users.map(u => `
-          <tr>
+          <tr class="user-row" onclick="window._users.openPanel(${u.id})">
             <td>${esc(u.display_name)}</td>
             <td style="font-family:monospace;font-size:13px;color:var(--text2)">${esc(u.username)}</td>
             <td><span class="badge ${u.role}">${u.role}</span></td>
             <td><span class="badge ${u.is_active ? 'active' : 'inactive'}">${u.is_active ? 'Active' : 'Inactive'}</span></td>
             <td style="font-size:12px;color:var(--text3)">${u.last_login ? fmtDate(u.last_login) : 'Never'}</td>
-            <td>
-              <div class="table-actions">
-                <button class="action-btn" onclick="window._users.openEdit(${u.id})">Edit</button>
-                <button class="action-btn" onclick="window._users.resetPwd(${u.id})">Reset pwd</button>
-                <button class="action-btn danger" onclick="window._users.remove(${u.id})">${u.is_active ? 'Deactivate' : 'Re-activate'}</button>
-              </div>
-            </td>
           </tr>
         `).join('')}
       </tbody>
@@ -74,9 +67,68 @@ function renderTable() {
 function openAdd() {
   showForm(null);
 }
-function openEdit(id) {
-  showForm(_users.find(u => u.id === id));
+
+function openPanel(id) {
+  const u = _users.find(x => x.id === id);
+  if (!u) return;
+  const form = document.getElementById('user-form-area');
+  form.innerHTML = `
+    <div class="form-card user-panel">
+      <div class="user-panel-header">
+        <span>${esc(u.display_name)}</span>
+        <button class="btn-icon" onclick="window._users.closeForm()" aria-label="Close">✕</button>
+      </div>
+
+      <input type="hidden" id="u-id" value="${u.id}">
+
+      <div class="user-panel-section">
+        <div class="user-panel-title">Edit details</div>
+        <div class="field">
+          <label>Display name</label>
+          <input type="text" id="u-name" value="${esc(u.display_name)}" placeholder="Display name">
+        </div>
+        <div class="form-row">
+          <div class="field">
+            <label>Role</label>
+            <select id="u-role">
+              <option value="staff" ${u.role === 'staff' ? 'selected' : ''}>Staff</option>
+              <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option>
+            </select>
+          </div>
+          <div class="field">
+            <label>Status</label>
+            <select id="u-active">
+              <option value="1" ${u.is_active ? 'selected' : ''}>Active</option>
+              <option value="0" ${!u.is_active ? 'selected' : ''}>Inactive</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-actions">
+          <button class="btn primary sm" onclick="window._users.save()">Save changes</button>
+          <button class="btn sm" onclick="window._users.closeForm()">Cancel</button>
+        </div>
+      </div>
+
+      <div class="user-panel-section">
+        <div class="user-panel-title">Reset password</div>
+        <div class="field">
+          <label>New password (min 8 chars)</label>
+          <input type="password" id="u-new-pass" placeholder="••••••••">
+        </div>
+        <div class="form-actions">
+          <button class="btn sm" onclick="window._users.savePwd()">Reset password</button>
+        </div>
+      </div>
+
+      <div class="user-panel-section">
+        <div class="user-panel-title">Danger zone</div>
+        <button class="btn danger sm" onclick="window._users.toggleActive(${u.id})">${u.is_active ? 'Deactivate user' : 'Re-activate user'}</button>
+      </div>
+    </div>
+  `;
+  document.getElementById('u-name').focus();
 }
+
 function closeForm() {
   document.getElementById('user-form-area').innerHTML = '';
 }
@@ -131,11 +183,11 @@ function showForm(u) {
 }
 
 async function save() {
-  const id       = document.getElementById('u-id').value;
-  const name     = document.getElementById('u-name').value.trim();
-  const username = document.getElementById('u-username')?.value?.trim();
-  const password = document.getElementById('u-pass')?.value;
-  const role     = document.getElementById('u-role').value;
+  const id        = document.getElementById('u-id').value;
+  const name      = document.getElementById('u-name').value.trim();
+  const username  = document.getElementById('u-username')?.value?.trim();
+  const password  = document.getElementById('u-pass')?.value;
+  const role      = document.getElementById('u-role').value;
   const is_active = document.getElementById('u-active')?.value;
 
   if (!name) { _toast('Display name required'); return; }
@@ -157,25 +209,26 @@ async function save() {
   } catch (e) { _toast('Error: ' + e.message); }
 }
 
-async function remove(id) {
+async function savePwd() {
+  const id  = document.getElementById('u-id').value;
+  const pwd = document.getElementById('u-new-pass').value;
+  if (!pwd || pwd.length < 8) { _toast('Password must be at least 8 characters'); return; }
+  try {
+    await post('/admin/users/reset-password', { id: +id, new_password: pwd });
+    _toast('Password reset');
+    document.getElementById('u-new-pass').value = '';
+  } catch (e) { _toast('Error: ' + e.message); }
+}
+
+async function toggleActive(id) {
   const u = _users.find(x => x.id === id);
   const action = u?.is_active ? 'deactivate' : 're-activate';
   if (!confirm(`${action.charAt(0).toUpperCase() + action.slice(1)} user "${u?.display_name}"?`)) return;
   try {
     await put('/admin/users', { id, is_active: !u.is_active });
     _toast(`User ${action}d`);
+    closeForm();
     await load();
-  } catch (e) { _toast('Error: ' + e.message); }
-}
-
-async function resetPwd(id) {
-  const u = _users.find(x => x.id === id);
-  const pwd = prompt(`New password for ${u?.display_name} (min 8 chars):`);
-  if (!pwd) return;
-  if (pwd.length < 8) { _toast('Password must be at least 8 characters'); return; }
-  try {
-    await post('/admin/users/reset-password', { id, new_password: pwd });
-    _toast('Password reset');
   } catch (e) { _toast('Error: ' + e.message); }
 }
 

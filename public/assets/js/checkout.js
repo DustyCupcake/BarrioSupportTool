@@ -103,9 +103,15 @@ async function toggleCampScan() {
   stat.textContent = 'Aim camera at barrio QR code…';
 
   scanner = new Scanner(document.getElementById('co-camp-video'), (value) => {
-    // Match scanned value against camp list names or ids
+    let scannedId = value;
+    try {
+      const url = new URL(value);
+      scannedId = url.searchParams.get('barrio') ?? value;
+    } catch { /* not a URL, use raw value */ }
     const match = campList.find(c =>
-      c.name.toLowerCase() === value.toLowerCase() || String(c.id) === value
+      c.name.toLowerCase() === value.toLowerCase() ||
+      String(c.id) === value ||
+      String(c.id) === scannedId
     );
     if (match) {
       selectCamp(match.id, match.name);

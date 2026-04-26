@@ -75,12 +75,11 @@ function renderTypesTable() {
   }
   area.innerHTML = addBtn + `
     <table class="data-table">
-      <thead><tr><th>Name</th><th>Category</th><th>Active items</th><th></th></tr></thead>
+      <thead><tr><th>Name</th><th>Active items</th><th></th></tr></thead>
       <tbody>
         ${_types.map(t => `
           <tr>
             <td>${esc(t.name)}</td>
-            <td style="color:var(--text2)">${t.category ? esc(t.category) : '—'}</td>
             <td>${t.item_count}</td>
             <td>
               <div class="table-actions">
