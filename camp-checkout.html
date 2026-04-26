@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Camp Checkout</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg: #f5f4f0; --surface: #ffffff; --surface2: #f0ede8;
+    --border: rgba(0,0,0,0.1); --border-med: rgba(0,0,0,0.18);
+    --text: #1a1a18; --text2: #6b6a65; --text3: #9b9a95;
+    --accent: #2a5f3f; --accent-light: #e8f2ec; --accent-text: #1d4a2f;
+    --warn: #92500e; --warn-bg: #fef3e2; --warn-border: #f59e0b;
+    --danger: #991b1b; --danger-bg: #fef2f2; --danger-border: #fca5a5;
+    --radius: 10px; --radius-lg: 14px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #141412; --surface: #1e1d1b; --surface2: #252420;
+      --border: rgba(255,255,255,0.1); --border-med: rgba(255,255,255,0.18);
+      --text: #edecea; --text2: #9b9a95; --text3: #6b6a65;
+      --accent: #4a9a6a; --accent-light: #1a2e22; --accent-text: #7dc49a;
+      --warn: #f59e0b; --warn-bg: #1c1505; --warn-border: #92500e;
+      --danger: #f87171; --danger-bg: #1c0505; --danger-border: #7f1d1d;
+    }
+  }
+
+  body { font-family: 'Georgia','Times New Roman',serif; background: var(--bg); color: var(--text); min-height: 100vh; }
+
+  header { background: var(--surface); border-bottom: 0.5px solid var(--border); padding: 1rem 1.25rem 0; position: sticky; top: 0; z-index: 10; }
+  .header-top { display: flex; align-items: baseline; justify-content: space-between; margin-bottom: .9rem; }
+  .logo { font-size: 18px; } .logo span { color: var(--accent); }
+  .cfg-btn { font-family: 'Georgia',serif; font-size: 12px; color: var(--text2); background: none; border: 0.5px solid var(--border-med); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+  .cfg-btn:hover { background: var(--surface2); }
+  nav { display: flex; overflow-x: auto; }
+  nav button { font-family: 'Georgia',serif; font-size: 13px; background: none; border: none; border-bottom: 2px solid transparent; padding: 8px 14px 10px; cursor: pointer; color: var(--text2); transition: color .15s, border-color .15s; white-space: nowrap; flex-shrink: 0; }
+  nav button.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+  main { padding: 1.25rem; max-width: 520px; margin: 0 auto; }
+
+  #config-bar { background: var(--warn-bg); border: 0.5px solid var(--warn-border); border-radius: var(--radius); padding: .6rem .9rem; font-size: 12px; color: var(--warn); display: flex; align-items: center; gap: 8px; margin-bottom: 1rem; }
+  .cfg-link { color: var(--accent); background: none; border: none; font-family: 'Georgia',serif; font-size: 12px; cursor: pointer; text-decoration: underline; padding: 0; }
+
+  .card { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius-lg); padding: 1.1rem 1.25rem; margin-bottom: 1rem; }
+  .card-label { font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--text3); margin-bottom: .75rem; }
+
+  /* Step indicator */
+  .steps { display: flex; align-items: center; gap: 0; margin-bottom: 1.25rem; }
+  .step { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text3); }
+  .step.active { color: var(--accent); }
+  .step.done { color: var(--text2); }
+  .step-num { width: 22px; height: 22px; border-radius: 50%; border: 1.5px solid currentColor; display: flex; align-items: center; justify-content: center; font-size: 11px; flex-shrink: 0; }
+  .step.done .step-num { background: var(--accent); border-color: var(--accent); color: #fff; font-size: 10px; }
+  .step.active .step-num { border-color: var(--accent); }
+  .step-line { flex: 1; height: 1px; background: var(--border); margin: 0 6px; }
+
+  /* Camp selection card */
+  .camp-chip-wrap { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: .75rem; }
+  .camp-chip { font-family: 'Georgia',serif; font-size: 13px; padding: 6px 14px; border: 0.5px solid var(--border-med); border-radius: 100px; background: transparent; color: var(--text); cursor: pointer; transition: all .12s; }
+  .camp-chip:hover { background: var(--surface2); }
+  .camp-chip.selected { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  .divider { display: flex; align-items: center; gap: 10px; margin: .85rem 0; }
+  .divider span { font-size: 11px; color: var(--text3); white-space: nowrap; }
+  .divider::before, .divider::after { content: ''; flex: 1; height: 0.5px; background: var(--border); }
+
+  /* Video / scanner */
+  .video-wrap { position: relative; width: 100%; aspect-ratio: 1; border-radius: var(--radius); overflow: hidden; background: #0a0a0a; }
+  .video-wrap video { width: 100%; height: 100%; object-fit: cover; display: block; }
+  .scan-overlay { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; pointer-events: none; }
+  .scan-frame { width: 60%; aspect-ratio: 1; border: 2px solid var(--accent); border-radius: 4px; position: relative; box-shadow: 0 0 0 2000px rgba(0,0,0,0.45); }
+  .scan-line { position: absolute; left: 0; right: 0; height: 2px; background: var(--accent); animation: scanmove 2s ease-in-out infinite; }
+  @keyframes scanmove { 0%,100%{top:10%;opacity:.5} 50%{top:88%;opacity:1} }
+  .scan-status { text-align: center; font-size: 13px; color: var(--text2); margin-top: .6rem; min-height: 20px; font-style: italic; }
+
+  /* Buttons */
+  .btn { display: flex; align-items: center; justify-content: center; gap: 6px; width: 100%; padding: 10px 18px; font-family: 'Georgia',serif; font-size: 14px; border: 0.5px solid var(--border-med); border-radius: var(--radius); background: transparent; color: var(--text); cursor: pointer; transition: background .12s; margin-top: .5rem; }
+  .btn:hover { background: var(--surface2); } .btn:active { transform: scale(.98); }
+  .btn.primary { background: var(--accent); color: #fff; border-color: transparent; }
+  .btn.primary:hover { opacity: .88; }
+  .btn.primary:disabled { opacity: .45; cursor: not-allowed; transform: none; }
+  .btn.danger { background: var(--danger-bg); color: var(--danger); border-color: var(--danger-border); }
+  .btn.ghost { border-color: transparent; color: var(--text2); font-size: 13px; }
+  .btn.ghost:hover { background: var(--surface2); }
+  .btn.sm { padding: 6px 12px; font-size: 12px; width: auto; margin-top: 0; }
+
+  /* Item list */
+  .item-row { display: flex; align-items: center; gap: 10px; padding: 9px 0; border-bottom: 0.5px solid var(--border); }
+  .item-row:last-child { border-bottom: none; }
+  .item-row-info { flex: 1; min-width: 0; }
+  .item-row-name { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .item-row-sub { font-size: 12px; color: var(--text2); font-style: italic; margin-top: 1px; }
+  .warn-tag { display: inline-block; font-size: 10px; background: var(--warn-bg); color: var(--warn); border: 0.5px solid var(--warn-border); border-radius: 4px; padding: 1px 6px; margin-left: 5px; vertical-align: middle; }
+  .remove-btn { background: none; border: none; color: var(--text3); font-size: 18px; cursor: pointer; padding: 0 4px; line-height: 1; flex-shrink: 0; }
+  .remove-btn:hover { color: var(--danger); }
+
+  .empty-list { text-align: center; padding: 1.5rem 1rem; color: var(--text3); font-style: italic; font-size: 13px; }
+
+  /* Camp badge shown during scanning */
+  .camp-badge { display: inline-flex; align-items: center; gap: 8px; background: var(--accent-light); color: var(--accent-text); border: 0.5px solid var(--accent); border-radius: 100px; padding: 5px 14px 5px 10px; font-size: 13px; margin-bottom: .85rem; }
+  .camp-badge-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); flex-shrink: 0; }
+
+  /* Finalize summary */
+  .summary-count { font-size: 28px; letter-spacing: -.02em; color: var(--text); }
+  .summary-sub { font-size: 13px; color: var(--text2); font-style: italic; margin-top: 2px; margin-bottom: 1rem; }
+
+  /* Inventory / History */
+  .pill { display: inline-block; font-size: 11px; padding: 2px 9px; border-radius: 100px; letter-spacing: .03em; }
+  .pill.available { background: var(--accent-light); color: var(--accent-text); }
+  .pill.out { background: var(--warn-bg); color: var(--warn); }
+
+  .inv-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .inv-table th { text-align: left; font-weight: normal; font-size: 10px; text-transform: uppercase; letter-spacing: .08em; color: var(--text3); padding: 6px 8px; border-bottom: 0.5px solid var(--border); }
+  .inv-table td { padding: 9px 8px; border-bottom: 0.5px solid var(--border); vertical-align: middle; }
+  .inv-table tr:last-child td { border-bottom: none; }
+  .dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+  .dot.g { background: var(--accent); } .dot.a { background: var(--warn); }
+
+  .history-row { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; border-bottom: 0.5px solid var(--border); font-size: 13px; }
+  .history-row:last-child { border-bottom: none; }
+  .h-icon { width: 28px; height: 28px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-size: 12px; flex-shrink: 0; margin-top: 1px; }
+  .h-icon.out { background: var(--warn-bg); color: var(--warn); }
+  .h-icon.in  { background: var(--accent-light); color: var(--accent-text); }
+  .h-main { flex: 1; }
+  .h-detail { font-size: 12px; color: var(--text2); margin-top: 2px; font-style: italic; }
+  .h-time { font-size: 11px; color: var(--text3); white-space: nowrap; }
+
+  .stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 1rem; }
+  .stat-card { background: var(--surface); border: 0.5px solid var(--border); border-radius: var(--radius); padding: .85rem 1rem; }
+  .stat-label { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: .06em; margin-bottom: 4px; }
+  .stat-val { font-size: 26px; letter-spacing: -.02em; }
+  .section-actions { display: flex; align-items: center; justify-content: space-between; margin-bottom: .75rem; }
+
+  select, input[type=text] { width: 100%; padding: 9px 12px; font-family: 'Georgia',serif; font-size: 14px; border: 0.5px solid var(--border-med); border-radius: var(--radius); background: var(--surface); color: var(--text); margin-bottom: .5rem; }
+
+  #config-modal { display: none; position: fixed; inset: 0; background: rgba(0,0,0,.5); z-index: 100; align-items: center; justify-content: center; padding: 1rem; }
+  #config-modal.open { display: flex; }
+  .modal-card { background: var(--surface); border-radius: var(--radius-lg); border: 0.5px solid var(--border); padding: 1.25rem; width: 100%; max-width: 400px; }
+  .modal-title { font-size: 16px; font-weight: normal; margin-bottom: 1rem; }
+  .modal-note { font-size: 12px; color: var(--text2); font-style: italic; line-height: 1.6; margin-top: .75rem; }
+
+  #toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--text); color: var(--surface); padding: 9px 18px; border-radius: var(--radius); font-size: 13px; opacity: 0; transition: opacity .25s; pointer-events: none; z-index: 200; white-space: nowrap; }
+  #toast.show { opacity: 1; }
+  .spinner { display: inline-block; width: 14px; height: 14px; border: 1.5px solid currentColor; border-top-color: transparent; border-radius: 50%; animation: spin .6s linear infinite; vertical-align: middle; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .empty { text-align: center; padding: 2rem 1rem; color: var(--text2); font-style: italic; font-size: 14px; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="header-top">
+    <div class="logo">Camp <span>Checkout</span></div>
+    <button class="cfg-btn" onclick="openConfig()">⚙ Configure</button>
+  </div>
+  <nav>
+    <button class="active" onclick="switchTab('checkout')">Check Out</button>
+    <button onclick="switchTab('checkin')">Check In</button>
+    <button onclick="switchTab('inventory')">Inventory</button>
+    <button onclick="switchTab('history')">History</button>
+  </nav>
+</header>
+
+<main>
+  <div id="config-bar">
+    ⚠ Apps Script URL not configured. <button class="cfg-link" onclick="openConfig()">Set up now</button>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       CHECK OUT TAB  —  3 steps: camp → scan items → finalize
+  ════════════════════════════════════════════════════════════ -->
+  <div id="tab-checkout">
+
+    <!-- Step indicator -->
+    <div class="steps">
+      <div class="step" id="step1-ind">
+        <div class="step-num" id="step1-num">1</div>
+        <span>Select camp</span>
+      </div>
+      <div class="step-line"></div>
+      <div class="step" id="step2-ind">
+        <div class="step-num" id="step2-num">2</div>
+        <span>Scan items</span>
+      </div>
+      <div class="step-line"></div>
+      <div class="step" id="step3-ind">
+        <div class="step-num" id="step3-num">3</div>
+        <span>Finalize</span>
+      </div>
+    </div>
+
+    <!-- ── STEP 1: Select camp ── -->
+    <div id="co-step1">
+      <div class="card">
+        <div class="card-label">Choose camp</div>
+        <div class="camp-chip-wrap" id="camp-chips">
+          <span style="font-size:13px;color:var(--text3);font-style:italic">Loading camps…</span>
+        </div>
+        <button class="btn primary" id="btn-camp-next" onclick="goToScanItems()" disabled>Continue →</button>
+      </div>
+
+      <div class="divider"><span>or scan camp QR code</span></div>
+
+      <div class="card">
+        <div class="card-label">Scan camp QR code</div>
+        <div class="video-wrap">
+          <video id="video-camp" playsinline autoplay muted></video>
+          <div class="scan-overlay"><div class="scan-frame"><div class="scan-line"></div></div></div>
+        </div>
+        <div class="scan-status" id="status-camp">Tap "Start Camera" to scan camp code</div>
+        <button class="btn" id="btn-camp-cam" onclick="toggleCamera('camp')">Start Camera</button>
+      </div>
+    </div>
+
+    <!-- ── STEP 2: Scan items ── -->
+    <div id="co-step2" style="display:none">
+      <div class="card">
+        <div class="camp-badge" id="active-camp-badge">
+          <span class="camp-badge-dot"></span>
+          <span id="active-camp-name">—</span>
+          <button onclick="backToCampSelect()" style="background:none;border:none;color:var(--accent-text);cursor:pointer;font-family:'Georgia',serif;font-size:12px;padding:0;margin-left:2px">✕ change</button>
+        </div>
+        <div class="card-label">Scan items one at a time</div>
+        <div class="video-wrap">
+          <video id="video-items" playsinline autoplay muted></video>
+          <div class="scan-overlay"><div class="scan-frame"><div class="scan-line"></div></div></div>
+        </div>
+        <div class="scan-status" id="status-items">Tap "Start Camera" to begin scanning</div>
+        <button class="btn" id="btn-items-cam" onclick="toggleCamera('items')">Start Camera</button>
+      </div>
+
+      <div class="card" style="padding:.85rem 1rem">
+        <div class="section-actions">
+          <div class="card-label" style="margin:0">Scanned items (<span id="item-count">0</span>)</div>
+        </div>
+        <div id="scanned-list"><div class="empty-list">No items scanned yet</div></div>
+        <button class="btn primary" id="btn-to-finalize" onclick="goToFinalize()" disabled style="margin-top:.75rem">
+          Review &amp; finalize →
+        </button>
+        <button class="btn ghost" onclick="backToCampSelect()">← Change camp</button>
+      </div>
+    </div>
+
+    <!-- ── STEP 3: Finalize ── -->
+    <div id="co-step3" style="display:none">
+      <div class="card">
+        <div class="camp-badge">
+          <span class="camp-badge-dot"></span>
+          <span id="finalize-camp-name">—</span>
+        </div>
+        <div class="summary-count" id="finalize-count">0 items</div>
+        <div class="summary-sub">ready to check out</div>
+        <div id="finalize-list"></div>
+        <button class="btn primary" id="btn-finalize" onclick="finalizeCheckout()">
+          Confirm check out
+        </button>
+        <button class="btn ghost" onclick="goBackToScan()">← Add more items</button>
+      </div>
+    </div>
+
+  </div><!-- end tab-checkout -->
+
+  <!-- ═══════════════════════════════════════════════════════
+       CHECK IN TAB
+  ════════════════════════════════════════════════════════════ -->
+  <div id="tab-checkin" style="display:none">
+    <div class="card">
+      <div class="card-label">Scan item to return</div>
+      <div class="video-wrap">
+        <video id="video-ci" playsinline autoplay muted></video>
+        <div class="scan-overlay"><div class="scan-frame"><div class="scan-line"></div></div></div>
+      </div>
+      <div class="scan-status" id="status-ci">Tap "Start Camera" to begin</div>
+      <button class="btn" id="btn-ci" onclick="toggleCamera('ci')">Start Camera</button>
+    </div>
+    <div class="card" id="result-ci" style="display:none">
+      <div style="font-size:20px;font-weight:normal;margin-bottom:3px" id="name-ci"></div>
+      <div style="font-size:13px;color:var(--text2);font-style:italic;margin-bottom:.85rem" id="cat-ci"></div>
+      <button class="btn primary" id="btn-confirm-ci" onclick="confirmCheckin()">Confirm Return</button>
+      <button class="btn" onclick="resetCI()" style="margin-top:4px">Scan again</button>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       INVENTORY TAB
+  ════════════════════════════════════════════════════════════ -->
+  <div id="tab-inventory" style="display:none">
+    <div class="stats" id="stats-row" style="display:none">
+      <div class="stat-card"><div class="stat-label">Available</div><div class="stat-val" id="stat-avail">—</div></div>
+      <div class="stat-card"><div class="stat-label">Checked out</div><div class="stat-val" id="stat-out">—</div></div>
+    </div>
+    <div class="card" style="padding:.85rem 1rem">
+      <div class="section-actions">
+        <div class="card-label" style="margin:0">All items</div>
+        <button class="btn sm" onclick="loadInventory()">Refresh</button>
+      </div>
+      <table class="inv-table">
+        <thead><tr><th>Item</th><th>Status</th><th>Camp</th></tr></thead>
+        <tbody id="inv-body"><tr><td colspan="3" class="empty">Tap refresh to load</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       HISTORY TAB
+  ════════════════════════════════════════════════════════════ -->
+  <div id="tab-history" style="display:none">
+    <div class="card" style="padding:.85rem 1rem">
+      <div class="section-actions">
+        <div class="card-label" style="margin:0">Transaction log</div>
+        <button class="btn sm" onclick="loadHistory()">Refresh</button>
+      </div>
+      <div id="history-list"><div class="empty">Tap refresh to load history</div></div>
+    </div>
+  </div>
+</main>
+
+<div id="config-modal">
+  <div class="modal-card">
+    <div class="modal-title">Apps Script configuration</div>
+    <label style="font-size:13px;color:var(--text2);display:block;margin-bottom:5px">Web App URL</label>
+    <input type="text" id="script-url-input" placeholder="https://script.google.com/macros/s/.../exec">
+    <button class="btn primary" onclick="saveConfig()">Save</button>
+    <button class="btn" onclick="closeConfig()" style="margin-top:4px">Cancel</button>
+    <p class="modal-note">Deploy your Apps Script as a Web App (execute as: Me, access: Anyone). Paste the /exec URL above.</p>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
+<script>
+'use strict';
+
+// ── State ────────────────────────────────────────────────────
+const DEFAULT_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbyN12n4iQCxaz-HOUI-Xp7JWVmj1U7q3sssB6ixDnUlX4DahWVuab-TOd58ei3QgqCq/exec';
+let SCRIPT_URL  = localStorage.getItem('camp_script_url') || DEFAULT_SCRIPT_URL;
+let campList    = [];          // loaded from sheet
+let selectedCamp = null;      // current camp for checkout
+let scannedItems = [];        // [{ qr, name, category, warn }]
+let lastQR_ci   = null;
+
+// Camera state per key: 'camp' | 'items' | 'ci'
+const camState = {};          // key -> { stream, raf, scanning }
+
+// Native BarcodeDetector if available
+const NATIVE = typeof BarcodeDetector !== 'undefined';
+let detector = null;
+if (NATIVE) { try { detector = new BarcodeDetector({ formats: ['qr_code'] }); } catch(_){} }
+
+// jsQR offscreen canvas (reused)
+const ofc = document.createElement('canvas');
+const ofx = ofc.getContext('2d', { willReadFrequently: true });
+
+const SCAN_MS    = 350;
+const MAX_DIM    = 640;
+
+// ── Init ─────────────────────────────────────────────────────
+updateConfigBar();
+loadCampList();
+
+function updateConfigBar() {
+  document.getElementById('config-bar').style.display = SCRIPT_URL ? 'none' : 'flex';
+}
+
+// ── Config ───────────────────────────────────────────────────
+function openConfig()  { document.getElementById('script-url-input').value = SCRIPT_URL; document.getElementById('config-modal').classList.add('open'); }
+function closeConfig() { document.getElementById('config-modal').classList.remove('open'); }
+function saveConfig()  {
+  SCRIPT_URL = document.getElementById('script-url-input').value.trim();
+  localStorage.setItem('camp_script_url', SCRIPT_URL);
+  updateConfigBar(); closeConfig(); toast('URL saved');
+  loadCampList();
+}
+
+// ── Tabs ─────────────────────────────────────────────────────
+function switchTab(tab) {
+  ['checkout','checkin','inventory','history'].forEach(t =>
+    document.getElementById('tab-'+t).style.display = t===tab ? 'block' : 'none');
+  document.querySelectorAll('nav button').forEach((b,i) =>
+    b.classList.toggle('active', ['checkout','checkin','inventory','history'][i]===tab));
+  if (tab==='inventory') loadInventory();
+  if (tab==='history')   loadHistory();
+}
+
+// ── Step indicator ───────────────────────────────────────────
+function setStep(n) {
+  [1,2,3].forEach(i => {
+    const ind = document.getElementById('step'+i+'-ind');
+    const num = document.getElementById('step'+i+'-num');
+    ind.className = 'step' + (i<n ? ' done' : i===n ? ' active' : '');
+    num.textContent = i<n ? '✓' : String(i);
+  });
+}
+
+// ── Camera ───────────────────────────────────────────────────
+async function toggleCamera(key) {
+  if (!camState[key]) camState[key] = { stream: null, raf: null, scanning: false };
+  const s = camState[key];
+
+  if (s.scanning) {
+    stopCamera(key);
+    document.getElementById('btn-'+key+'-cam') && (document.getElementById('btn-'+key+'-cam').textContent = 'Start Camera');
+    document.getElementById('status-'+key) && (document.getElementById('status-'+key).textContent = 'Camera stopped');
+    // btn ids differ for 'items' key
+    const btn = key==='items' ? document.getElementById('btn-items-cam')
+              : key==='camp'  ? document.getElementById('btn-camp-cam')
+              : document.getElementById('btn-ci');
+    if (btn) btn.textContent = 'Start Camera';
+    return;
+  }
+
+  const statusEl = document.getElementById('status-'+key);
+  const videoEl  = document.getElementById('video-'+key);
+  if (statusEl) statusEl.textContent = 'Requesting camera…';
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: false,
+      video: { facingMode: { ideal:'environment' }, width:{ ideal:1280 }, height:{ ideal:720 } }
+    });
+    s.stream  = stream;
+    videoEl.srcObject = stream;
+    videoEl.setAttribute('playsinline','');
+    videoEl.setAttribute('muted','');
+    await videoEl.play();
+    s.scanning = true;
+
+    const btnEl = key==='items' ? document.getElementById('btn-items-cam')
+                : key==='camp'  ? document.getElementById('btn-camp-cam')
+                : document.getElementById('btn-ci');
+    if (btnEl) btnEl.textContent = 'Stop Camera';
+    if (statusEl) statusEl.textContent = 'Scanning… hold QR code steady';
+
+    startScanLoop(key, videoEl, statusEl);
+  } catch(err) {
+    if (statusEl) statusEl.textContent = 'Camera error: ' + err.message;
+  }
+}
+
+function stopCamera(key) {
+  if (!camState[key]) return;
+  const s = camState[key];
+  if (s.raf)    { cancelAnimationFrame(s.raf); s.raf = null; }
+  if (s.stream) { s.stream.getTracks().forEach(t=>t.stop()); s.stream = null; }
+  const v = document.getElementById('video-'+key);
+  if (v) v.srcObject = null;
+  s.scanning = false;
+}
+
+function startScanLoop(key, videoEl, statusEl) {
+  const s = camState[key];
+  let lastTick = 0;
+
+  function tick(ts) {
+    if (!s.scanning) return;
+    s.raf = requestAnimationFrame(tick);
+    if (ts - lastTick < SCAN_MS) return;
+    lastTick = ts;
+    if (!videoEl.videoWidth || videoEl.paused) return;
+
+    if (detector) {
+      detector.detect(videoEl).then(codes => {
+        if (codes.length) onDetected(key, codes[0].rawValue);
+      }).catch(()=>{});
+    } else {
+      const vw = videoEl.videoWidth, vh = videoEl.videoHeight;
+      const sc = Math.min(1, MAX_DIM / Math.max(vw, vh));
+      const w  = Math.round(vw*sc), h = Math.round(vh*sc);
+      ofc.width=w; ofc.height=h;
+      try {
+        ofx.drawImage(videoEl, 0, 0, w, h);
+        const d = ofx.getImageData(0, 0, w, h);
+        const r = jsQR(d.data, w, h, { inversionAttempts:'dontInvert' });
+        if (r) onDetected(key, r.data);
+      } catch(_) {}
+    }
+  }
+  s.raf = requestAnimationFrame(tick);
+}
+
+// ── On QR detected (dispatches by context) ───────────────────
+function onDetected(key, value) {
+  if (!camState[key] || !camState[key].scanning) return;
+
+  if (key === 'camp') {
+    // Value should match a camp name in our list
+    stopCamera('camp');
+    document.getElementById('btn-camp-cam').textContent = 'Start Camera';
+    const match = campList.find(c => c.toLowerCase() === value.toLowerCase());
+    if (match) {
+      selectCamp(match);
+      document.getElementById('status-camp').textContent = '✓ Camp detected: ' + match;
+    } else {
+      document.getElementById('status-camp').textContent = '⚠ "' + value + '" not found in camps list';
+    }
+    return;
+  }
+
+  if (key === 'items') {
+    handleItemScan(value);
+    return;
+  }
+
+  if (key === 'ci') {
+    stopCamera('ci');
+    document.getElementById('btn-ci').textContent = 'Scan again';
+    document.getElementById('status-ci').textContent = '✓ Code detected';
+    lastQR_ci = value;
+    lookupCI(value);
+  }
+}
+
+// ── STEP 1: Camp selection ────────────────────────────────────
+async function loadCampList() {
+  const wrap = document.getElementById('camp-chips');
+  const data = await api({ action: 'camps' });
+  if (!data || !data.camps || !data.camps.length) {
+    wrap.innerHTML = '<span style="font-size:13px;color:var(--text3);font-style:italic">No camps found — check your sheet</span>';
+    return;
+  }
+  campList = data.camps;
+  renderCampChips();
+}
+
+function renderCampChips() {
+  const wrap = document.getElementById('camp-chips');
+  wrap.innerHTML = campList.map(c =>
+    `<button class="camp-chip${selectedCamp===c?' selected':''}" onclick="selectCamp('${c.replace(/'/g,"\\'")}')">
+      ${c}
+    </button>`
+  ).join('');
+}
+
+function selectCamp(name) {
+  selectedCamp = name;
+  renderCampChips();
+  document.getElementById('btn-camp-next').disabled = false;
+}
+
+function goToScanItems() {
+  if (!selectedCamp) return;
+  stopCamera('camp');
+  document.getElementById('co-step1').style.display = 'none';
+  document.getElementById('co-step2').style.display = 'block';
+  document.getElementById('co-step3').style.display = 'none';
+  document.getElementById('active-camp-name').textContent = selectedCamp;
+  setStep(2);
+  // Auto-start camera
+  toggleCamera('items');
+}
+
+function backToCampSelect() {
+  stopCamera('items');
+  stopCamera('camp');
+  scannedItems = [];
+  renderScannedList();
+  document.getElementById('co-step1').style.display = 'block';
+  document.getElementById('co-step2').style.display = 'none';
+  document.getElementById('co-step3').style.display = 'none';
+  document.getElementById('status-items').textContent = 'Tap "Start Camera" to begin scanning';
+  document.getElementById('btn-items-cam').textContent = 'Start Camera';
+  setStep(1);
+}
+
+// ── STEP 2: Scan items ────────────────────────────────────────
+async function handleItemScan(qr) {
+  // Debounce — ignore if already in list
+  if (scannedItems.find(i => i.qr === qr)) {
+    toast('Already in list');
+    return;
+  }
+
+  // Pause scanning briefly while we look up
+  const s = camState['items'];
+  if (s && s.raf) { cancelAnimationFrame(s.raf); s.raf = null; }
+
+  document.getElementById('status-items').textContent = 'Looking up item…';
+
+  const data = await api({ action: 'lookup', qr });
+
+  if (!data || data.error) {
+    toast('Item not found: ' + qr);
+    document.getElementById('status-items').textContent = '⚠ Item not found — try again';
+    // Resume scanning
+    if (s && s.scanning) {
+      const v = document.getElementById('video-items');
+      startScanLoop('items', v, document.getElementById('status-items'));
+    }
+    return;
+  }
+
+  const item = {
+    qr,
+    name:     data.name || qr,
+    category: data.category || '',
+    warn:     data.status === 'checked-out' ? ('Already out to ' + (data.camp||'?')) : null
+  };
+
+  scannedItems.push(item);
+  renderScannedList();
+
+  if (item.warn) {
+    toast('⚠ Added with warning');
+  } else {
+    toast('Added: ' + item.name);
+  }
+
+  document.getElementById('status-items').textContent = 'Scanning… hold QR code steady';
+  // Resume scanning
+  if (s && s.scanning) {
+    const v = document.getElementById('video-items');
+    startScanLoop('items', v, document.getElementById('status-items'));
+  }
+}
+
+function renderScannedList() {
+  const list  = document.getElementById('scanned-list');
+  const count = scannedItems.length;
+  document.getElementById('item-count').textContent = count;
+  document.getElementById('btn-to-finalize').disabled = count === 0;
+
+  if (!count) {
+    list.innerHTML = '<div class="empty-list">No items scanned yet</div>';
+    return;
+  }
+  list.innerHTML = scannedItems.map((item, idx) => `
+    <div class="item-row">
+      <div class="item-row-info">
+        <div class="item-row-name">
+          ${item.name}
+          ${item.warn ? `<span class="warn-tag">⚠ ${item.warn}</span>` : ''}
+        </div>
+        ${item.category ? `<div class="item-row-sub">${item.category}</div>` : ''}
+      </div>
+      <button class="remove-btn" onclick="removeItem(${idx})" title="Remove">×</button>
+    </div>`).join('');
+}
+
+function removeItem(idx) {
+  scannedItems.splice(idx, 1);
+  renderScannedList();
+}
+
+// ── STEP 3: Finalize ──────────────────────────────────────────
+function goToFinalize() {
+  if (!scannedItems.length) return;
+  stopCamera('items');
+  document.getElementById('co-step2').style.display = 'none';
+  document.getElementById('co-step3').style.display = 'block';
+  document.getElementById('finalize-camp-name').textContent = selectedCamp;
+  const n = scannedItems.length;
+  document.getElementById('finalize-count').textContent = n + ' item' + (n!==1?'s':'');
+  document.getElementById('finalize-list').innerHTML = scannedItems.map(item => `
+    <div class="item-row">
+      <div class="item-row-info">
+        <div class="item-row-name">
+          ${item.name}
+          ${item.warn ? `<span class="warn-tag">⚠ override</span>` : ''}
+        </div>
+        ${item.category ? `<div class="item-row-sub">${item.category}</div>` : ''}
+      </div>
+    </div>`).join('');
+  setStep(3);
+}
+
+function goBackToScan() {
+  document.getElementById('co-step2').style.display = 'block';
+  document.getElementById('co-step3').style.display = 'none';
+  setStep(2);
+  toggleCamera('items');
+}
+
+async function finalizeCheckout() {
+  const btn = document.getElementById('btn-finalize');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Checking out…';
+
+  let errors = [];
+  for (const item of scannedItems) {
+    const data = await api({ action: 'checkout', qr: item.qr, camp: selectedCamp, force: 'true' });
+    if (!data || (!data.success && !data.forced)) {
+      errors.push(item.name + ': ' + ((data && data.error) || 'error'));
+    }
+  }
+
+  btn.disabled = false;
+  btn.textContent = 'Confirm check out';
+
+  if (errors.length) {
+    toast('Some errors: ' + errors[0]);
+  } else {
+    toast('Checked out ' + scannedItems.length + ' items to ' + selectedCamp);
+  }
+
+  // Reset to camp selection, ready for next camp
+  scannedItems = [];
+  selectedCamp = null;
+  renderCampChips();
+  document.getElementById('btn-camp-next').disabled = true;
+  document.getElementById('co-step1').style.display = 'block';
+  document.getElementById('co-step2').style.display = 'none';
+  document.getElementById('co-step3').style.display = 'none';
+  document.getElementById('status-items').textContent = 'Tap "Start Camera" to begin scanning';
+  document.getElementById('btn-items-cam').textContent = 'Start Camera';
+  setStep(1);
+}
+
+// ── Check In ─────────────────────────────────────────────────
+async function lookupCI(qr) {
+  const panel = document.getElementById('result-ci');
+  panel.style.display = 'block';
+  document.getElementById('name-ci').textContent = 'Looking up…';
+  document.getElementById('cat-ci').textContent  = '';
+  const data = await api({ action: 'lookup', qr });
+  if (!data || data.error) {
+    document.getElementById('name-ci').textContent = data ? data.error : 'Error reaching server';
+    document.getElementById('btn-confirm-ci').style.display = 'none';
+    return;
+  }
+  document.getElementById('name-ci').textContent = data.name || qr;
+  document.getElementById('cat-ci').textContent  =
+    data.status === 'checked-out' ? 'Currently out to: ' + (data.camp||'?') :
+    data.status === 'available'   ? 'Already returned — no action needed' : '';
+  document.getElementById('btn-confirm-ci').style.display =
+    data.status === 'checked-out' ? 'flex' : 'none';
+}
+
+async function confirmCheckin() {
+  const data = await api({ action: 'checkin', qr: lastQR_ci });
+  if (data && data.success) { toast('Item returned'); resetCI(); }
+  else toast((data && data.error) || 'Error');
+}
+
+function resetCI() {
+  lastQR_ci = null;
+  document.getElementById('result-ci').style.display = 'none';
+  document.getElementById('status-ci').textContent = 'Tap "Start Camera" to begin';
+  document.getElementById('btn-ci').textContent = 'Start Camera';
+}
+
+// ── Inventory ────────────────────────────────────────────────
+async function loadInventory() {
+  const tbody = document.getElementById('inv-body');
+  tbody.innerHTML = '<tr><td colspan="3" class="empty"><span class="spinner"></span></td></tr>';
+  const data = await api({ action: 'inventory' });
+  if (!data || !data.items) { tbody.innerHTML = '<tr><td colspan="3" class="empty">Could not load</td></tr>'; return; }
+  const avail = data.items.filter(i=>i.status==='available').length;
+  document.getElementById('stat-avail').textContent = avail;
+  document.getElementById('stat-out').textContent   = data.items.length - avail;
+  document.getElementById('stats-row').style.display = 'grid';
+  tbody.innerHTML = data.items.length
+    ? data.items.map(item=>`
+        <tr>
+          <td>${item.name}<br><span style="font-size:11px;color:var(--text3);font-style:italic">${item.category||''}</span></td>
+          <td><span class="dot ${item.status==='available'?'g':'a'}"></span>${item.status==='available'?'In':'Out'}</td>
+          <td style="font-size:12px;color:var(--text2);font-style:italic">${item.camp||'—'}</td>
+        </tr>`).join('')
+    : '<tr><td colspan="3" class="empty">No items found</td></tr>';
+}
+
+// ── History ──────────────────────────────────────────────────
+async function loadHistory() {
+  const list = document.getElementById('history-list');
+  list.innerHTML = '<div class="empty"><span class="spinner"></span></div>';
+  const data = await api({ action: 'history' });
+  if (!data || !data.log) { list.innerHTML = '<div class="empty">Could not load history</div>'; return; }
+  if (!data.log.length)   { list.innerHTML = '<div class="empty">No transactions yet</div>'; return; }
+  list.innerHTML = data.log.slice().reverse().map(row => {
+    const isOut = row.type === 'checkout';
+    const ts = row.timestamp
+      ? new Date(row.timestamp).toLocaleString(undefined,{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'})
+      : '';
+    return `<div class="history-row">
+      <div class="h-icon ${isOut?'out':'in'}">${isOut?'↑':'↓'}</div>
+      <div class="h-main">
+        <div>${row.name||row.qr}</div>
+        <div class="h-detail">${isOut?'Checked out to '+(row.camp||'?'):'Returned'+(row.camp?' from '+row.camp:'')}</div>
+      </div>
+      <div class="h-time">${ts}</div>
+    </div>`;
+  }).join('');
+}
+
+// ── API ──────────────────────────────────────────────────────
+async function api(params) {
+  if (!SCRIPT_URL) { toast('Configure the Apps Script URL first'); return null; }
+  try {
+    const res = await fetch(SCRIPT_URL + '?' + new URLSearchParams(params));
+    return await res.json();
+  } catch(e) { toast('Network error: ' + e.message); return null; }
+}
+
+// ── Helpers ──────────────────────────────────────────────────
+function toast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.classList.add('show');
+  setTimeout(()=>t.classList.remove('show'), 2800);
+}
+</script>
+</body>
+</html>
