@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Barrio Support — Login</title>
+<link rel="stylesheet" href="/assets/css/main.css">
+<style>
+  body { display: flex; align-items: center; justify-content: center; min-height: 100vh; padding: 1rem; }
+  .login-box { width: 100%; max-width: 360px; }
+  .logo { text-align: center; font-size: 22px; margin-bottom: 1.75rem; }
+  .logo span { color: var(--accent); }
+  .login-box .card { padding: 1.5rem; }
+  .error-msg { font-size: 13px; color: var(--danger); margin-bottom: .5rem; display: none; }
+  .btn { margin-top: .75rem; }
+</style>
+</head>
+<body>
+<div class="login-box">
+  <div class="logo">Barrio <span>Support</span></div>
+  <div class="card">
+    <div id="login-error" class="error-msg"></div>
+    <div class="field">
+      <label for="username">Username</label>
+      <input type="text" id="username" autocomplete="username" placeholder="your username">
+    </div>
+    <div class="field">
+      <label for="password">Password</label>
+      <input type="password" id="password" autocomplete="current-password" placeholder="••••••••">
+    </div>
+    <button class="btn primary" id="login-btn" onclick="doLogin()">Log in</button>
+  </div>
+</div>
+<div id="toast"></div>
+
+<script>
+async function doLogin() {
+  const username = document.getElementById('username').value.trim();
+  const password = document.getElementById('password').value;
+  const errEl    = document.getElementById('login-error');
+  const btn      = document.getElementById('login-btn');
+
+  errEl.style.display = 'none';
+  if (!username || !password) {
+    errEl.textContent = 'Please enter your username and password.';
+    errEl.style.display = '';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Logging in…';
+
+  try {
+    const resp = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ username, password }),
+    });
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      errEl.textContent = data.error || 'Login failed';
+      errEl.style.display = '';
+      btn.disabled = false;
+      btn.textContent = 'Log in';
+      return;
+    }
+
+    // Redirect based on role
+    if (data.role === 'admin' && location.search.includes('next=admin')) {
+      window.location.href = '/admin/';
+    } else {
+      window.location.href = '/';
+    }
+  } catch {
+    errEl.textContent = 'Network error — check connection';
+    errEl.style.display = '';
+    btn.disabled = false;
+    btn.textContent = 'Log in';
+  }
+}
+
+// Submit on Enter
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter') doLogin();
+});
+</script>
+</body>
+</html>

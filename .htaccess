@@ -1,0 +1,10 @@
+# Barrio Support — root .htaccess
+# This file lives at the repo root (above public/).
+# If your cPanel document root IS this directory (not public/), also copy
+# the public/.htaccess rules here so that /api/ routing works.
+
+# Deny direct access to sensitive files
+<FilesMatch "\.(env|sql|md|json)$">
+    Order allow,deny
+    Deny from all
+</FilesMatch>

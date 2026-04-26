@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Admin — Barrio Support</title>
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="stylesheet" href="/assets/css/admin.css">
+</head>
+<body>
+
+<div class="admin-shell">
+
+  <aside class="admin-sidebar">
+    <div class="admin-logo">
+      Barrio <span>Support</span>
+      <small>Admin panel</small>
+    </div>
+    <nav class="admin-nav">
+      <a href="#barrios" data-section="barrios" class="active">
+        <span class="nav-icon">⛺</span> Barrios
+      </a>
+      <a href="#equipment" data-section="equipment">
+        <span class="nav-icon">📦</span> Equipment
+      </a>
+      <a href="#users" data-section="users">
+        <span class="nav-icon">👤</span> Users
+      </a>
+    </nav>
+    <div class="admin-footer">
+      <div id="admin-username" style="margin-bottom:.5rem;color:var(--text2)"></div>
+      <a href="/" style="margin-right:.5rem">← App</a>
+      <a href="#" id="admin-logout">Log out</a>
+    </div>
+  </aside>
+
+  <main class="admin-main" id="admin-content">
+    <div class="empty"><span class="spinner"></span> Loading…</div>
+  </main>
+
+</div>
+
+<div id="toast"></div>
+
+<script type="module" src="/assets/js/admin/admin.js"></script>
+</body>
+</html>

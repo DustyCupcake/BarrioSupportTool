@@ -1,0 +1,196 @@
+/* Admin panel styles — loaded alongside main.css */
+
+/* ── Layout ────────────────────────────────────────────────────────────── */
+.admin-shell {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  min-height: 100vh;
+}
+
+.admin-sidebar {
+  background: var(--surface);
+  border-right: 0.5px solid var(--border);
+  padding: 1.5rem 0;
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+}
+.admin-logo {
+  font-size: 16px;
+  padding: 0 1.25rem .75rem;
+  border-bottom: 0.5px solid var(--border);
+  margin-bottom: .75rem;
+}
+.admin-logo span { color: var(--accent); }
+.admin-logo small { display: block; font-size: 11px; color: var(--text3); margin-top: 2px; letter-spacing: .04em; }
+
+.admin-nav a {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: .6rem 1.25rem;
+  font-size: 14px;
+  color: var(--text2);
+  text-decoration: none;
+  border-left: 2px solid transparent;
+  transition: color .12s, border-color .12s, background .12s;
+}
+.admin-nav a:hover { color: var(--text); background: var(--surface2); }
+.admin-nav a.active { color: var(--accent); border-left-color: var(--accent); background: var(--accent-light); }
+.admin-nav .nav-icon { width: 16px; text-align: center; flex-shrink: 0; }
+
+.admin-footer {
+  margin-top: auto;
+  padding: 1rem 1.25rem 0;
+  border-top: 0.5px solid var(--border);
+  font-size: 12px;
+  color: var(--text3);
+}
+.admin-footer a { color: var(--text2); text-decoration: none; }
+.admin-footer a:hover { color: var(--text); }
+
+.admin-main {
+  padding: 2rem;
+  max-width: 860px;
+}
+
+.page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+}
+.page-title { font-size: 22px; font-weight: normal; }
+.page-subtitle { font-size: 13px; color: var(--text2); margin-top: 4px; }
+
+/* ── Table ─────────────────────────────────────────────────────────────── */
+.data-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+}
+.data-table th {
+  text-align: left;
+  font-weight: normal;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: .07em;
+  color: var(--text3);
+  padding: 10px 14px;
+  border-bottom: 0.5px solid var(--border);
+  background: var(--surface2);
+}
+.data-table td {
+  padding: 11px 14px;
+  border-bottom: 0.5px solid var(--border);
+  vertical-align: middle;
+}
+.data-table tr:last-child td { border-bottom: none; }
+.data-table tr:hover td { background: var(--surface2); }
+
+.table-actions { display: flex; gap: 6px; }
+.action-btn {
+  font-family: 'Georgia', serif;
+  font-size: 12px;
+  padding: 4px 10px;
+  border: 0.5px solid var(--border-med);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text2);
+  cursor: pointer;
+}
+.action-btn:hover { background: var(--surface2); color: var(--text); }
+.action-btn.danger:hover { background: var(--danger-bg); color: var(--danger); border-color: var(--danger-border); }
+
+/* ── Form card ─────────────────────────────────────────────────────────── */
+.form-card {
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: 1.5rem;
+  margin-bottom: 1.5rem;
+}
+.form-card h2 { font-size: 16px; font-weight: normal; margin-bottom: 1rem; }
+
+.form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 1rem; }
+@media (max-width: 540px) { .form-row { grid-template-columns: 1fr; } }
+
+.field { margin-bottom: .75rem; }
+
+.form-actions {
+  display: flex;
+  gap: .5rem;
+  margin-top: 1rem;
+}
+.form-actions .btn { margin-top: 0; width: auto; }
+
+/* ── Status badge ──────────────────────────────────────────────────────── */
+.badge {
+  display: inline-block;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 100px;
+}
+.badge.active { background: var(--accent-light); color: var(--accent-text); }
+.badge.inactive { background: var(--surface2); color: var(--text3); }
+.badge.admin { background: var(--warn-bg); color: var(--warn); }
+.badge.staff { background: var(--surface2); color: var(--text2); }
+.badge.available { background: var(--accent-light); color: var(--accent-text); }
+.badge.checked-out { background: var(--warn-bg); color: var(--warn); }
+.badge.retired { background: var(--surface2); color: var(--text3); }
+
+/* ── Section tabs (within admin pages) ────────────────────────────────── */
+.section-tabs {
+  display: flex;
+  border-bottom: 0.5px solid var(--border);
+  margin-bottom: 1.5rem;
+}
+.section-tab {
+  font-family: 'Georgia', serif;
+  font-size: 13px;
+  padding: 8px 16px;
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--text2);
+  cursor: pointer;
+}
+.section-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+/* ── Mobile sidebar collapse ───────────────────────────────────────────── */
+@media (max-width: 680px) {
+  .admin-shell { grid-template-columns: 1fr; }
+  .admin-sidebar {
+    height: auto;
+    position: static;
+    flex-direction: row;
+    padding: .5rem 0;
+    overflow-x: auto;
+    border-right: none;
+    border-bottom: 0.5px solid var(--border);
+  }
+  .admin-logo { display: none; }
+  .admin-footer { display: none; }
+  .admin-nav { display: flex; }
+  .admin-nav a {
+    flex-direction: column;
+    gap: 2px;
+    padding: .4rem .75rem;
+    font-size: 11px;
+    border-left: none;
+    border-bottom: 2px solid transparent;
+    white-space: nowrap;
+  }
+  .admin-nav a.active { border-left-color: transparent; border-bottom-color: var(--accent); background: none; }
+  .admin-main { padding: 1rem; }
+}
+
+/* ── QR prefix hint ────────────────────────────────────────────────────── */
+.hint { font-size: 11px; color: var(--text3); margin-top: -.25rem; margin-bottom: .5rem; font-style: italic; }

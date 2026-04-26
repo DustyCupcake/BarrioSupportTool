@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>Barrio Support</title>
+<link rel="manifest" href="/manifest.json">
+<link rel="stylesheet" href="/assets/css/main.css">
+<link rel="stylesheet" href="/assets/css/app.css">
+</head>
+<body>
+
+<header>
+  <div class="header-top">
+    <div class="logo">Barrio <span>Support</span></div>
+    <div class="user-info">
+      <span id="header-user"></span>
+      <a id="admin-link" href="/admin/" style="display:none;font-size:12px;color:var(--text2);text-decoration:none;border:0.5px solid var(--border-med);border-radius:6px;padding:4px 10px">Admin</a>
+      <button class="logout-btn" id="logout-btn">Log out</button>
+    </div>
+  </div>
+  <nav>
+    <button class="active" data-tab="checkout">Check Out</button>
+    <button data-tab="checkin">Check In</button>
+    <button data-tab="inventory">Inventory</button>
+    <button data-tab="history">History</button>
+  </nav>
+</header>
+
+<main>
+  <div class="tab-panel" id="tab-checkout"></div>
+  <div class="tab-panel" id="tab-checkin"   style="display:none"></div>
+  <div class="tab-panel" id="tab-inventory" style="display:none"></div>
+  <div class="tab-panel" id="tab-history"   style="display:none"></div>
+</main>
+
+<div id="toast"></div>
+
+<script src="/assets/vendor/jsqr.min.js"></script>
+<script type="module" src="/assets/js/app.js"></script>
+</body>
+</html>
