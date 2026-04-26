@@ -5,6 +5,7 @@
 import { get, post } from './api.js';
 import { Scanner } from './scanner.js';
 import { toast } from './app.js';
+import { scanOverlay } from './scan-overlay.js';
 
 let scanner = null;
 let lastItem = null;
@@ -28,7 +29,6 @@ function render(container) {
       </div>
       <div class="scan-status" id="ci-status">Aim camera at item QR code…</div>
     </div>
-    <div id="ci-result"></div>
   `;
 
   startScanner(container);
@@ -47,56 +47,67 @@ async function startScanner(container) {
 }
 
 async function handleScan(qr, container) {
-  const stat   = document.getElementById('ci-status');
-  const result = document.getElementById('ci-result');
-  if (stat)   stat.textContent = 'Looking up…';
-  if (result) result.innerHTML = '';
+  const stat = document.getElementById('ci-status');
+  if (stat) stat.textContent = 'Looking up…';
+
+  const doReset = () => {
+    scanOverlay.hide();
+    render(container);
+  };
 
   try {
     const item = await get('/items/lookup', { qr });
     lastItem = item;
 
     if (item.status === 'available') {
-      if (result) result.innerHTML = `
-        <div class="card ci-result">
-          <div class="item-name">${item.name}</div>
-          <div class="item-status">Already returned — no action needed</div>
-          <button class="btn" style="margin-top:1rem" onclick="window._ci.reset()">Scan another</button>
-        </div>
-      `;
-      if (stat) stat.textContent = '';
+      scanOverlay.show({
+        state: 'warning',
+        title: item.name,
+        subtitle: 'Already returned — no action needed',
+        buttons: [
+          { label: 'OK', action: doReset },
+        ],
+      });
     } else {
-      if (result) result.innerHTML = `
-        <div class="card">
-          <div class="card-label">Item found</div>
-          <div class="item-row">
-            <div class="item-row-info">
-              <div class="item-row-name">${item.name}</div>
-              <div class="item-row-sub">Checked out to: ${item.current_barrio?.name ?? '—'}</div>
-            </div>
-          </div>
-          <button class="btn primary" style="margin-top:.75rem" onclick="window._ci.confirm('${qr}')">Confirm return</button>
-          <button class="btn ghost" onclick="window._ci.reset()">Cancel</button>
-        </div>
-      `;
-      if (stat) stat.textContent = '';
+      const doConfirm = async () => {
+        scanOverlay.hide();
+        await confirmCheckin(qr, container);
+      };
+
+      scanOverlay.show({
+        state: 'success',
+        title: item.name,
+        subtitle: item.current_barrio?.name ? `Checked out to ${item.current_barrio.name}` : item.category ?? null,
+        buttons: [
+          { label: 'Confirm Return', action: doConfirm },
+          { label: 'Undo', action: doReset },
+        ],
+      });
     }
   } catch (e) {
-    if (stat) stat.textContent = e.status === 404 ? 'QR not found in inventory' : 'Lookup failed';
-    if (result) result.innerHTML = `<button class="btn" onclick="window._ci.reset()">Try again</button>`;
+    const doManual = () => {
+      scanOverlay.showManualEntry({
+        placeholder: 'Type item QR code',
+        onSubmit: (typed) => handleScan(typed, container),
+        onCancel: doReset,
+      });
+    };
+
+    scanOverlay.show({
+      state: 'error',
+      title: 'Not found',
+      subtitle: e.status === 404 ? 'QR not in inventory' : 'Lookup failed',
+      buttons: [
+        { label: 'OK', action: doReset },
+        { label: 'Enter Manually', action: doManual },
+      ],
+    });
+
     toast(e.message);
   }
-
-  window._ci = {
-    confirm: confirmCheckin,
-    reset:   () => render(container),
-  };
 }
 
-async function confirmCheckin(qr) {
-  const btn = document.querySelector('#ci-result .btn.primary');
-  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span>'; }
-
+async function confirmCheckin(qr, container) {
   try {
     const res = await post('/checkin', { item_qr: qr });
     if (res.__offline) {
@@ -106,11 +117,9 @@ async function confirmCheckin(qr) {
     } else {
       toast('Item was not checked out');
     }
-
-    const container = document.getElementById('tab-checkin');
-    render(container);
   } catch (e) {
     toast('Error: ' + e.message);
-    if (btn) { btn.disabled = false; btn.textContent = 'Confirm return'; }
   }
+
+  render(container);
 }

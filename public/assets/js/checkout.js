@@ -6,6 +6,7 @@
 import { get, post } from './api.js';
 import { Scanner } from './scanner.js';
 import { toast } from './app.js';
+import { scanOverlay } from './scan-overlay.js';
 
 let step         = 1;
 let selectedCamp = null;   // { id, name }
@@ -108,26 +109,91 @@ async function toggleCampScan() {
       const url = new URL(value);
       scannedId = url.searchParams.get('barrio') ?? value;
     } catch { /* not a URL, use raw value */ }
+
     const match = campList.find(c =>
       c.name.toLowerCase() === value.toLowerCase() ||
       String(c.id) === value ||
       String(c.id) === scannedId
     );
+
     if (match) {
-      selectCamp(match.id, match.name);
-      wrap.style.display = 'none';
-      btn.textContent = 'Scan barrio QR';
-      stat.textContent = '';
-      toast('Barrio: ' + match.name);
+      showBarrioSuccess(match, wrap, btn, stat);
     } else {
-      stat.textContent = 'Barrio not recognised — try again';
-      scanner = null;
-      // Restart
-      toggleCampScan();
+      showBarrioError(wrap, btn, stat);
     }
   });
+
   try { await scanner.start(); }
   catch { stat.textContent = 'Camera error — check permissions'; scanner = null; }
+}
+
+function showBarrioSuccess(match, wrap, btn, stat) {
+  const doConfirm = () => {
+    selectCamp(match.id, match.name);
+    wrap.style.display = 'none';
+    btn.textContent = 'Scan barrio QR';
+    stat.textContent = '';
+    scanOverlay.hide();
+    goStep2();
+  };
+  const doUndo = () => {
+    scanOverlay.hide();
+    scanner = null;
+    toggleCampScan();
+  };
+
+  scanOverlay.show({
+    state: 'success',
+    title: match.name,
+    subtitle: null,
+    buttons: [
+      { label: 'Continue to Items', action: doConfirm },
+      { label: 'Undo', action: doUndo },
+    ],
+  });
+}
+
+function showBarrioError(wrap, btn, stat) {
+  const doOK = () => {
+    scanOverlay.hide();
+    scanner = null;
+    toggleCampScan();
+  };
+  const doManual = () => {
+    scanOverlay.showManualEntry({
+      placeholder: 'Type barrio name or ID',
+      onSubmit: (typed) => {
+        const m = campList.find(c =>
+          c.name.toLowerCase() === typed.toLowerCase() ||
+          String(c.id) === typed
+        );
+        if (m) {
+          showBarrioSuccess(m, wrap, btn, stat);
+        } else {
+          scanOverlay.show({
+            state: 'error',
+            title: 'Not recognised',
+            subtitle: `No barrio matches "${typed}"`,
+            buttons: [
+              { label: 'OK', action: doOK },
+              { label: 'Enter Manually', action: doManual },
+            ],
+          });
+        }
+      },
+      onCancel: doOK,
+    });
+  };
+
+  scanOverlay.show({
+    state: 'error',
+    title: 'Not recognised',
+    subtitle: 'Barrio QR not found',
+    buttons: [
+      { label: 'OK', action: doOK },
+      { label: 'Enter Manually', action: doManual },
+    ],
+  });
 }
 
 // ─── Step 2: Scan items ───────────────────────────────────────────────────
@@ -160,6 +226,7 @@ async function goStep2() {
   `;
 
   window._co = { back: () => renderStep1(container), goStep3, removeItem };
+  renderScannedList();
 
   scanner = new Scanner(document.getElementById('co-items-video'), handleItemScan);
   try { await scanner.start(); }
@@ -171,12 +238,20 @@ async function goStep2() {
 async function handleItemScan(qr) {
   const stat = document.getElementById('co-items-status');
   if (scannedItems.find(i => i.qr === qr)) {
-    toast('Already in list');
-    await restartItemScanner();
+    const existing = scannedItems.find(i => i.qr === qr);
+    scanOverlay.show({
+      state: 'warning',
+      title: existing.name,
+      subtitle: 'Already in list',
+      buttons: [
+        { label: 'Continue Scanning', action: () => { scanOverlay.hide(); restartItemScanner(); } },
+        { label: 'Undo', action: () => { scanOverlay.hide(); restartItemScanner(); } },
+      ],
+    });
     return;
   }
 
-  stat.textContent = 'Looking up…';
+  if (stat) stat.textContent = 'Looking up…';
   try {
     const item = await get('/items/lookup', { qr });
     const entry = {
@@ -185,16 +260,65 @@ async function handleItemScan(qr) {
       category: item.category,
       warn: item.status === 'checked-out' ? `Out to ${item.current_barrio?.name}` : null,
     };
-    scannedItems.push(entry);
-    renderScannedList();
-    stat.textContent = '';
-    toast('Added: ' + item.name);
-  } catch (e) {
-    stat.textContent = e.status === 404 ? 'QR not found in inventory' : 'Lookup failed';
-    toast(e.message);
-  }
 
-  await restartItemScanner();
+    const doAdd = () => {
+      scannedItems.push(entry);
+      renderScannedList();
+    };
+
+    const doContinue = () => {
+      doAdd();
+      if (stat) stat.textContent = '';
+      scanOverlay.hide();
+      restartItemScanner();
+    };
+    const doDone = () => {
+      doAdd();
+      scanOverlay.hide();
+      goStep3();
+    };
+    const doUndo = () => {
+      if (stat) stat.textContent = '';
+      scanOverlay.hide();
+      restartItemScanner();
+    };
+
+    const buttons = [
+      { label: 'Continue Scanning', action: doContinue },
+      ...(scannedItems.length >= 1 ? [{ label: 'Done Scanning', action: doDone }] : []),
+      { label: 'Undo', action: doUndo },
+    ];
+
+    scanOverlay.show({
+      state: entry.warn ? 'warning' : 'success',
+      title: item.name,
+      subtitle: entry.warn ?? item.category ?? null,
+      buttons,
+    });
+  } catch (e) {
+    const doOK = () => {
+      if (stat) stat.textContent = '';
+      scanOverlay.hide();
+      restartItemScanner();
+    };
+    const doManual = () => {
+      scanOverlay.showManualEntry({
+        placeholder: 'Type item QR code',
+        onSubmit: (typed) => handleItemScan(typed),
+        onCancel: doOK,
+      });
+    };
+
+    scanOverlay.show({
+      state: 'error',
+      title: 'Not found',
+      subtitle: e.status === 404 ? 'QR not in inventory' : 'Lookup failed',
+      buttons: [
+        { label: 'OK', action: doOK },
+        { label: 'Enter Manually', action: doManual },
+      ],
+    });
+  }
 }
 
 async function restartItemScanner() {
