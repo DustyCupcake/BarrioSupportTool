@@ -14,7 +14,7 @@ export async function initEquipment(container, toast) {
   _toast = toast;
   renderShell(container);
   await loadTypes();
-  showTab('types');
+  switchTab('types');
 }
 
 function renderShell(container) {

@@ -35,7 +35,7 @@ export async function enqueue(event) {
   const db    = await openDB();
   const entry = {
     client_id:   uuid(),
-    synced:      false,
+    synced:      0,
     occurred_at: new Date().toISOString(),
     ...event,
   };
@@ -52,7 +52,7 @@ async function getPending() {
   return new Promise((resolve, reject) => {
     const tx    = db.transaction(STORE, 'readonly');
     const index = tx.objectStore(STORE).index('synced');
-    const req   = index.getAll(IDBKeyRange.only(false));
+    const req   = index.getAll(IDBKeyRange.only(0));
     req.onsuccess = e => resolve(e.target.result);
     req.onerror   = e => reject(e.target.error);
   });
@@ -67,7 +67,7 @@ async function markSynced(client_ids) {
     const get = st.get(id);
     get.onsuccess = e => {
       const rec = e.target.result;
-      if (rec) { rec.synced = true; st.put(rec); }
+      if (rec) { rec.synced = 1; st.put(rec); }
       res();
     };
     get.onerror = e => rej(e.target.error);

@@ -1,11 +1,21 @@
 <?php
 declare(strict_types=1);
+ini_set('display_errors', '1');
+ini_set('display_startup_errors', '1');
+error_reporting(E_ALL);
 
 require_once __DIR__ . '/lib/db.php';
 require_once __DIR__ . '/lib/response.php';
 require_once __DIR__ . '/auth.php';
 
 header('Content-Type: application/json; charset=utf-8');
+
+set_exception_handler(function (Throwable $e): void {
+    http_response_code(500);
+    header('Content-Type: application/json; charset=utf-8');
+    echo json_encode(['error' => $e->getMessage()]);
+    exit;
+});
 
 // Allow same-origin AJAX from the public/ directory
 $origin = $_SERVER['HTTP_ORIGIN'] ?? '';

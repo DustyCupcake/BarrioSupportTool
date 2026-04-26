@@ -1,5 +1,10 @@
 Options -Indexes
 
+# Block direct access to sensitive files
+<FilesMatch "^\.env$">
+    Require all denied
+</FilesMatch>
+
 # Security headers
 <IfModule mod_headers.c>
     Header always set X-Content-Type-Options "nosniff"
@@ -18,7 +23,7 @@ Options -Indexes
     RewriteRule ^ - [L]
 
     # Route all /api/ requests to the PHP router
-    RewriteRule ^api/(.*)$ ../api/index.php/$1 [QSA,L]
+    RewriteRule ^api/(.*)$ api/index.php?path=$1 [QSA,L]
 </IfModule>
 
 # Compress text assets
