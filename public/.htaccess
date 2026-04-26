@@ -18,7 +18,7 @@ Options -Indexes
     RewriteRule ^ - [L]
 
     # Route all /api/ requests to the PHP router
-    RewriteRule ^api/(.*)$ ../api/index.php [QSA,L]
+    RewriteRule ^api/(.*)$ ../api/index.php/$1 [QSA,L]
 </IfModule>
 
 # Compress text assets

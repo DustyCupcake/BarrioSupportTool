@@ -29,7 +29,7 @@ async function boot() {
     user = await get('/auth/me');
     setCsrf(user.csrf_token);
   } catch {
-    window.location.href = '/login.html';
+    window.location.href = '/login.html?next=' + encodeURIComponent(location.pathname + location.search);
     return;
   }
 
@@ -59,11 +59,12 @@ async function boot() {
     window.location.href = '/login.html';
   });
 
-  switchTab('checkout');
+  const barrioId = new URLSearchParams(location.search).get('barrio') || null;
+  switchTab('checkout', barrioId);
 }
 
-function switchTab(name) {
-  if (currentTab === name) return;
+function switchTab(name, extra = null) {
+  if (currentTab === name && !extra) return;
 
   // Destroy previous tab state
   if (currentTab === 'checkin') destroyCheckin();
@@ -82,7 +83,7 @@ function switchTab(name) {
   if (panel) panel.style.display = '';
 
   switch (name) {
-    case 'checkout':  initCheckout(panel);  break;
+    case 'checkout':  initCheckout(panel, extra);  break;
     case 'checkin':   initCheckin(panel);   break;
     case 'inventory': initInventory(panel); break;
     case 'history':   initHistory(panel);   break;

@@ -43,7 +43,7 @@ async function doLogin() {
   errEl.style.display = 'none';
   if (!username || !password) {
     errEl.textContent = 'Please enter your username and password.';
-    errEl.style.display = '';
+    errEl.style.display = 'block';
     return;
   }
 
@@ -61,21 +61,24 @@ async function doLogin() {
 
     if (!resp.ok) {
       errEl.textContent = data.error || 'Login failed';
-      errEl.style.display = '';
+      errEl.style.display = 'block';
       btn.disabled = false;
       btn.textContent = 'Log in';
       return;
     }
 
-    // Redirect based on role
-    if (data.role === 'admin' && location.search.includes('next=admin')) {
+    // Redirect: honour ?next= for deep-links, fall back to role default
+    const params = new URLSearchParams(location.search);
+    const next   = params.get('next') || '';
+    const safe   = next.startsWith('/') && !next.startsWith('//');
+    if (data.role === 'admin' && (!safe || next === '/admin/')) {
       window.location.href = '/admin/';
     } else {
-      window.location.href = '/';
+      window.location.href = safe ? next : '/';
     }
   } catch {
     errEl.textContent = 'Network error — check connection';
-    errEl.style.display = '';
+    errEl.style.display = 'block';
     btn.disabled = false;
     btn.textContent = 'Log in';
   }

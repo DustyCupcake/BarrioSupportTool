@@ -61,6 +61,7 @@ $routes = [
     ['PUT',    '/admin/items',                  'routes/admin/equipment.php', 'handle_update_item'],
     ['DELETE', '/admin/items',                  'routes/admin/equipment.php', 'handle_delete_item'],
     ['GET',    '/admin/items/qr-sheet',         'routes/admin/qr_sheet.php',  'handle_qr_sheet'],
+    ['GET',    '/admin/barrio-qr',             'routes/admin/barrio_qr.php', 'handle_barrio_qr'],
 
     // Admin — users
     ['GET',    '/admin/users',                  'routes/admin/users.php', 'handle_list'],

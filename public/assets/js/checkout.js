@@ -13,16 +13,24 @@ let campList     = [];
 let scannedItems = [];     // [{ qr, name, category, warn }]
 let scanner      = null;
 
-export function init(container) {
+export function init(container, preselectedBarrioId = null) {
   renderStep1(container);
-  loadCamps(container);
+  loadCamps(container, preselectedBarrioId);
 }
 
-async function loadCamps(container) {
+async function loadCamps(container, preselectedBarrioId = null) {
   try {
     const data = await get('/camps');
     campList = data.camps || [];
     renderChips(container);
+    if (preselectedBarrioId) {
+      const match = campList.find(c => String(c.id) === String(preselectedBarrioId));
+      if (match) {
+        selectCamp(match.id, match.name);
+        toast('Checking out to: ' + match.name);
+        await goStep2();
+      }
+    }
   } catch (e) {
     toast('Could not load barrios: ' + e.message);
   }

@@ -77,6 +77,7 @@ function renderTable(wrap) {
             <td style="font-size:12px;color:var(--text3)">${fmtDate(b.created_at)}</td>
             <td>
               <div class="table-actions">
+                <button class="action-btn" onclick="window.open('/api/admin/barrio-qr?id=${b.id}','_blank')">QR</button>
                 <button class="action-btn" onclick="window._barrios.openEdit(${b.id})">Edit</button>
                 <button class="action-btn danger" onclick="window._barrios.remove(${b.id})">Delete</button>
               </div>
