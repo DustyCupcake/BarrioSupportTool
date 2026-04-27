@@ -56,3 +56,38 @@ function handle_csrf(): void {
     start_session();
     json_ok(['csrf_token' => csrf_token()]);
 }
+
+function handle_register(): void {
+    require_method('POST');
+
+    $b            = body();
+    $username     = trim($b['username'] ?? '');
+    $display_name = trim($b['display_name'] ?? '');
+    $password     = $b['password'] ?? '';
+    $confirm      = $b['confirm_password'] ?? '';
+
+    if ($username === '' || $display_name === '' || $password === '') {
+        json_error('All fields are required', 400);
+    }
+    if (strlen($password) < 8) {
+        json_error('Password must be at least 8 characters', 400);
+    }
+    if ($password !== $confirm) {
+        json_error('Passwords do not match', 400);
+    }
+
+    $hash = password_hash($password, PASSWORD_BCRYPT);
+
+    try {
+        db()->prepare(
+            'INSERT INTO users (username, display_name, password_hash, role, is_active) VALUES (?, ?, ?, \'staff\', 0)'
+        )->execute([$username, $display_name, $hash]);
+    } catch (PDOException $e) {
+        if (str_contains($e->getMessage(), 'Duplicate') || str_contains($e->getMessage(), '1062')) {
+            json_error('Username already taken', 409);
+        }
+        throw $e;
+    }
+
+    json_ok(['message' => 'Account created. An admin will activate your account before you can log in.'], 201);
+}

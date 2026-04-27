@@ -41,6 +41,7 @@ $method = $_SERVER['REQUEST_METHOD'];
 // Route table
 $routes = [
     // Auth
+    ['POST', '/auth/register', 'routes/auth.php',              'handle_register'],
     ['POST', '/auth/login',    'routes/auth.php',              'handle_login'],
     ['POST', '/auth/logout',   'routes/auth.php',              'handle_logout'],
     ['GET',  '/auth/me',       'routes/auth.php',              'handle_me'],

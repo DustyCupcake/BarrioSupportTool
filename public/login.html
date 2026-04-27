@@ -13,27 +13,75 @@
   .login-box .card { padding: 1.5rem; }
   .error-msg { font-size: 13px; color: var(--danger); margin-bottom: .5rem; display: none; }
   .btn { margin-top: .75rem; }
+  .switch-link { text-align: center; margin-top: 1rem; font-size: 13px; color: var(--text2); }
+  .switch-link a { color: var(--accent); text-decoration: none; cursor: pointer; }
+  .switch-link a:hover { text-decoration: underline; }
+  .success-icon { text-align: center; font-size: 2rem; margin-bottom: .75rem; }
+  .success-msg { text-align: center; font-size: 14px; color: var(--text2); line-height: 1.5; }
+  [data-view] { display: none; }
+  [data-view].active { display: block; }
 </style>
 </head>
 <body>
 <div class="login-box">
   <div class="logo">Barrio <span>Support</span></div>
   <div class="card">
-    <div id="login-error" class="error-msg"></div>
-    <div class="field">
-      <label for="username">Username</label>
-      <input type="text" id="username" autocomplete="username" placeholder="your username">
+
+    <!-- Login view -->
+    <div data-view="login" class="active">
+      <div id="login-error" class="error-msg"></div>
+      <div class="field">
+        <label for="username">Username</label>
+        <input type="text" id="username" autocomplete="username" placeholder="your username">
+      </div>
+      <div class="field">
+        <label for="password">Password</label>
+        <input type="password" id="password" autocomplete="current-password" placeholder="••••••••">
+      </div>
+      <button class="btn primary" id="login-btn" onclick="doLogin()">Log in</button>
+      <div class="switch-link">Don't have an account? <a onclick="showView('register')">Create account</a></div>
     </div>
-    <div class="field">
-      <label for="password">Password</label>
-      <input type="password" id="password" autocomplete="current-password" placeholder="••••••••">
+
+    <!-- Register view -->
+    <div data-view="register">
+      <div id="reg-error" class="error-msg"></div>
+      <div class="field">
+        <label for="reg-name">Display name</label>
+        <input type="text" id="reg-name" autocomplete="name" placeholder="Your name">
+      </div>
+      <div class="field">
+        <label for="reg-username">Username</label>
+        <input type="text" id="reg-username" autocomplete="username" placeholder="choose a username">
+      </div>
+      <div class="field">
+        <label for="reg-password">Password</label>
+        <input type="password" id="reg-password" autocomplete="new-password" placeholder="min 8 characters">
+      </div>
+      <div class="field">
+        <label for="reg-confirm">Confirm password</label>
+        <input type="password" id="reg-confirm" autocomplete="new-password" placeholder="••••••••">
+      </div>
+      <button class="btn primary" id="reg-btn" onclick="doRegister()">Create account</button>
+      <div class="switch-link">Already have an account? <a onclick="showView('login')">Log in</a></div>
     </div>
-    <button class="btn primary" id="login-btn" onclick="doLogin()">Log in</button>
+
+    <!-- Success view -->
+    <div data-view="success">
+      <div class="success-icon">✓</div>
+      <div class="success-msg">Account created! An admin will activate your account before you can log in.</div>
+      <div class="switch-link" style="margin-top:1.25rem"><a onclick="showView('login')">Back to login</a></div>
+    </div>
+
   </div>
 </div>
 <div id="toast"></div>
 
 <script>
+function showView(name) {
+  document.querySelectorAll('[data-view]').forEach(el => el.classList.remove('active'));
+  document.querySelector(`[data-view="${name}"]`).classList.add('active');
+}
+
 async function doLogin() {
   const username = document.getElementById('username').value.trim();
   const password = document.getElementById('password').value;
@@ -84,9 +132,67 @@ async function doLogin() {
   }
 }
 
+async function doRegister() {
+  const display_name     = document.getElementById('reg-name').value.trim();
+  const username         = document.getElementById('reg-username').value.trim();
+  const password         = document.getElementById('reg-password').value;
+  const confirm_password = document.getElementById('reg-confirm').value;
+  const errEl            = document.getElementById('reg-error');
+  const btn              = document.getElementById('reg-btn');
+
+  errEl.style.display = 'none';
+
+  if (!display_name || !username || !password || !confirm_password) {
+    errEl.textContent = 'All fields are required.';
+    errEl.style.display = 'block';
+    return;
+  }
+  if (password.length < 8) {
+    errEl.textContent = 'Password must be at least 8 characters.';
+    errEl.style.display = 'block';
+    return;
+  }
+  if (password !== confirm_password) {
+    errEl.textContent = 'Passwords do not match.';
+    errEl.style.display = 'block';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Creating account…';
+
+  try {
+    const resp = await fetch('/api/auth/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      credentials: 'include',
+      body: JSON.stringify({ username, display_name, password, confirm_password }),
+    });
+    const data = await resp.json();
+
+    if (!resp.ok) {
+      errEl.textContent = data.error || 'Registration failed';
+      errEl.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Create account';
+      return;
+    }
+
+    showView('success');
+  } catch {
+    errEl.textContent = 'Network error — check connection';
+    errEl.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = 'Create account';
+  }
+}
+
 // Submit on Enter
 document.addEventListener('keydown', e => {
-  if (e.key === 'Enter') doLogin();
+  if (e.key !== 'Enter') return;
+  const active = document.querySelector('[data-view].active');
+  if (active?.dataset.view === 'login')    doLogin();
+  if (active?.dataset.view === 'register') doRegister();
 });
 </script>
 </body>
