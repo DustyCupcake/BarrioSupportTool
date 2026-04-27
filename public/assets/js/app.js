@@ -7,6 +7,7 @@ import { get, setCsrf } from './api.js';
 import { initOfflineSync } from './offline.js';
 import { init as initCheckout } from './checkout.js';
 import { init as initCheckin, destroy as destroyCheckin } from './checkin.js';
+import { init as initBarrios, destroy as destroyBarrios } from './barrios.js';
 import { init as initInventory } from './inventory.js';
 import { init as initHistory } from './history.js';
 
@@ -63,11 +64,12 @@ async function boot() {
   switchTab('checkout', barrioId);
 }
 
-function switchTab(name, extra = null) {
+export function switchTab(name, extra = null) {
   if (currentTab === name && !extra) return;
 
   // Destroy previous tab state
   if (currentTab === 'checkin') destroyCheckin();
+  if (currentTab === 'barrios') destroyBarrios();
 
   currentTab = name;
 
@@ -85,6 +87,7 @@ function switchTab(name, extra = null) {
   switch (name) {
     case 'checkout':  initCheckout(panel, extra);  break;
     case 'checkin':   initCheckin(panel);   break;
+    case 'barrios':   initBarrios(panel, extra);   break;
     case 'inventory': initInventory(panel); break;
     case 'history':   initHistory(panel);   break;
   }

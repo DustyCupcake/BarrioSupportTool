@@ -44,6 +44,7 @@ export async function api(method, path, body = null) {
   if (!resp.ok) {
     const err = new Error(data.error || 'Request failed');
     err.status = resp.status;
+    err.data = data;
     throw err;
   }
   return data;

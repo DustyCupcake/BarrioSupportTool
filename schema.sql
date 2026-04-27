@@ -21,12 +21,25 @@ CREATE TABLE IF NOT EXISTS users (
 
 -- ─── Barrios ──────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS barrios (
-    id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
-    name       VARCHAR(128) NOT NULL,
-    sort_order SMALLINT UNSIGNED NOT NULL DEFAULT 0,
-    created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    id               INT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    name             VARCHAR(128)  NOT NULL,
+    sort_order       SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    arrival_status   ENUM('expected','on-site','departed') NOT NULL DEFAULT 'expected',
+    arrived_at       DATETIME      NULL,
+    arrived_by       INT UNSIGNED  NULL,
+    arrived_by_name  VARCHAR(128)  NULL,
+    water_vouchers   SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    ice_tokens       SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    orientation_done TINYINT(1)    NOT NULL DEFAULT 0,
+    departed_at      DATETIME      NULL,
+    departed_by      INT UNSIGNED  NULL,
+    departed_by_name VARCHAR(128)  NULL,
+    created_at       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    UNIQUE KEY uq_name (name)
+    UNIQUE KEY uq_name (name),
+    KEY idx_arrival_status (arrival_status),
+    CONSTRAINT fk_barrio_arrived_by  FOREIGN KEY (arrived_by)  REFERENCES users(id) ON DELETE SET NULL,
+    CONSTRAINT fk_barrio_departed_by FOREIGN KEY (departed_by) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ─── Equipment types ──────────────────────────────────────────────────────

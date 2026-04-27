@@ -56,6 +56,12 @@ $routes = [
     ['GET',  '/history',                'routes/history.php',       'handle_history'],
     ['POST', '/sync/offline-queue',     'routes/sync.php',          'handle_sync'],
 
+    // Barrio lifecycle (arrival / departure)
+    ['GET',  '/barrios',          'routes/barrios.php', 'handle_list_barrios'],
+    ['GET',  '/barrios/:id',      'routes/barrios.php', 'handle_get_barrio'],
+    ['POST', '/barrio-arrival',   'routes/barrios.php', 'handle_barrio_arrival'],
+    ['POST', '/barrio-departure', 'routes/barrios.php', 'handle_barrio_departure'],
+
     // Admin — barrios
     ['GET',    '/admin/barrios',        'routes/admin/barrios.php', 'handle_list'],
     ['POST',   '/admin/barrios',        'routes/admin/barrios.php', 'handle_create'],

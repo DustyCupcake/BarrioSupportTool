@@ -1,15 +1,15 @@
 /**
- * Check-out tab — 3-step flow.
- * Step 1: select barrio  |  Step 2: scan items  |  Step 3: review & finalize
+ * Lend tab — 3-step flow.
+ * Step 1: select barrio  |  Step 2: scan items  |  Step 3: review & lend
  */
 
 import { get, post } from './api.js';
 import { Scanner } from './scanner.js';
-import { toast } from './app.js';
+import { toast, switchTab } from './app.js';
 import { scanOverlay } from './scan-overlay.js';
 
 let step         = 1;
-let selectedCamp = null;   // { id, name }
+let selectedCamp = null;   // { id, name, arrival_status }
 let campList     = [];
 let scannedItems = [];     // [{ qr, name, category, warn }]
 let scanner      = null;
@@ -27,9 +27,7 @@ async function loadCamps(container, preselectedBarrioId = null) {
     if (preselectedBarrioId) {
       const match = campList.find(c => String(c.id) === String(preselectedBarrioId));
       if (match) {
-        selectCamp(match.id, match.name);
-        toast('Checking out to: ' + match.name);
-        await goStep2();
+        showBarrioSuccess(match);
       }
     }
   } catch (e) {
@@ -74,13 +72,14 @@ function renderChips(container) {
   }
   wrap.innerHTML = campList.map(c =>
     `<button class="camp-chip${selectedCamp?.id === c.id ? ' selected' : ''}"
-      onclick="window._co.selectCamp(${c.id}, '${c.name.replace(/'/g, "\\'")}')">${c.name}</button>`
+      onclick="window._co.selectCamp(${c.id}, '${c.name.replace(/'/g, "\\'")}', '${c.arrival_status}')">${c.name}</button>`
   ).join('');
   window._co.selectCamp = selectCamp;
 }
 
-function selectCamp(id, name) {
-  selectedCamp = { id, name };
+function selectCamp(id, name, arrival_status) {
+  const status = arrival_status ?? campList.find(c => c.id === id)?.arrival_status ?? 'expected';
+  selectedCamp = { id, name, arrival_status: status };
   const chips = document.querySelectorAll('.camp-chip');
   chips.forEach(c => c.classList.toggle('selected', c.textContent === name));
   const btn = document.getElementById('co-next1');
@@ -127,19 +126,28 @@ async function toggleCampScan() {
   catch { stat.textContent = 'Camera error — check permissions'; scanner = null; }
 }
 
-function showBarrioSuccess(match, wrap, btn, stat) {
+function showBarrioSuccess(match, wrap = null, btn = null, stat = null) {
   const doConfirm = () => {
-    selectCamp(match.id, match.name);
-    wrap.style.display = 'none';
-    btn.textContent = 'Scan barrio QR';
-    stat.textContent = '';
+    selectCamp(match.id, match.name, match.arrival_status);
+    if (wrap) wrap.style.display = 'none';
+    if (btn) btn.textContent = 'Scan barrio QR';
+    if (stat) stat.textContent = '';
     scanOverlay.hide();
     goStep2();
   };
+  const doCheckInOnly = () => {
+    scanOverlay.hide();
+    switchTab('barrios', match.id);
+  };
   const doUndo = () => {
     scanOverlay.hide();
-    scanner = null;
-    toggleCampScan();
+    if (wrap && btn) {
+      scanner = null;
+      toggleCampScan();
+    } else {
+      const container = document.getElementById('tab-checkout');
+      renderStep1(container);
+    }
   };
 
   scanOverlay.show({
@@ -148,6 +156,7 @@ function showBarrioSuccess(match, wrap, btn, stat) {
     subtitle: null,
     buttons: [
       { label: 'Continue to Items', action: doConfirm },
+      { label: 'Check In Without Lending', action: doCheckInOnly },
       { label: 'Undo', action: doUndo },
     ],
   });
@@ -204,9 +213,17 @@ async function goStep2() {
   step = 2;
   stopScanner();
 
+  const arrivalPrompt = selectedCamp.arrival_status === 'expected' ? `
+    <div class="card arrival-prompt-card">
+      <div class="card-label">Barrio not yet checked in</div>
+      <div style="font-size:13px;color:var(--warn)">Arrival will be recorded on confirmation.</div>
+    </div>
+  ` : '';
+
   container.innerHTML = `
     ${stepsHTML(2)}
     <div class="camp-badge"><span class="camp-badge-dot"></span>${selectedCamp.name}</div>
+    ${arrivalPrompt}
     <div class="card">
       <div class="card-label">Scan items</div>
       <div class="video-wrap" id="co-items-wrap">
@@ -221,7 +238,7 @@ async function goStep2() {
     </div>
     <div style="display:flex;gap:.5rem">
       <button class="btn ghost" style="flex:1" onclick="window._co.back()">Back</button>
-      <button class="btn primary" id="co-next2" disabled style="flex:2" onclick="window._co.goStep3()">Review &amp; finalise</button>
+      <button class="btn primary" id="co-next2" disabled style="flex:2" onclick="window._co.goStep3()">Review &amp; lend</button>
     </div>
   `;
 
@@ -369,7 +386,22 @@ function goStep3() {
   step = 3;
   stopScanner();
 
-  const hasWarns = scannedItems.some(i => i.warn);
+  const hasWarns   = scannedItems.some(i => i.warn);
+  const needArrival = selectedCamp.arrival_status === 'expected';
+
+  const arrivalForm = needArrival ? `
+    <div class="arrival-form-section">
+      <div class="card-label">Record Arrival</div>
+      <label>Water vouchers given</label>
+      <input type="number" id="co-water" min="0" value="0" inputmode="numeric" style="margin-bottom:.6rem">
+      <label>Ice tokens given</label>
+      <input type="number" id="co-ice" min="0" value="0" inputmode="numeric" style="margin-bottom:.6rem">
+      <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text);margin-bottom:.25rem">
+        <input type="checkbox" id="co-orientation" style="width:auto;margin:0;accent-color:var(--accent)">
+        Orientation completed
+      </label>
+    </div>
+  ` : '';
 
   container.innerHTML = `
     ${stepsHTML(3)}
@@ -377,7 +409,7 @@ function goStep3() {
       <div class="card-label">Review</div>
       <div class="camp-badge"><span class="camp-badge-dot"></span>${selectedCamp.name}</div>
       <div class="summary-count">${scannedItems.length}</div>
-      <div class="summary-sub">item${scannedItems.length !== 1 ? 's' : ''} to check out</div>
+      <div class="summary-sub">item${scannedItems.length !== 1 ? 's' : ''} to lend</div>
       <div id="co-review-list">
         ${scannedItems.map(i => `
           <div class="item-row">
@@ -391,9 +423,10 @@ function goStep3() {
           </div>
         `).join('')}
       </div>
-      ${hasWarns ? '<div style="font-size:12px;color:var(--warn);margin-top:.75rem;font-style:italic">Items already checked out will be force-transferred</div>' : ''}
+      ${hasWarns ? '<div style="font-size:12px;color:var(--warn);margin-top:.75rem;font-style:italic">Items already lent will be force-transferred</div>' : ''}
+      ${arrivalForm}
     </div>
-    <button class="btn primary" id="co-confirm" onclick="window._co.confirm()">Confirm check out</button>
+    <button class="btn primary" id="co-confirm" onclick="window._co.confirm()">Confirm lend</button>
     <button class="btn ghost" onclick="window._co.back()">Back</button>
   `;
 
@@ -418,9 +451,28 @@ async function finalise() {
     const failed = result.results?.filter(r => !r.success) ?? [];
 
     if (failed.length) {
-      toast(`${failed.length} item(s) failed to check out`);
+      toast(`${failed.length} item(s) failed to lend`);
     } else {
-      toast(`Checked out ${scannedItems.length} item(s) to ${selectedCamp.name}`);
+      toast(`Lent ${scannedItems.length} item(s) to ${selectedCamp.name}`);
+    }
+
+    // If this barrio was expected, also record arrival
+    if (selectedCamp.arrival_status === 'expected') {
+      const water  = parseInt(document.getElementById('co-water')?.value || '0', 10);
+      const ice    = parseInt(document.getElementById('co-ice')?.value || '0', 10);
+      const orient = document.getElementById('co-orientation')?.checked || false;
+      try {
+        await post('/barrio-arrival', {
+          barrio_id:        selectedCamp.id,
+          water_vouchers:   water,
+          ice_tokens:       ice,
+          orientation_done: orient,
+        });
+        toast('Arrival recorded for ' + selectedCamp.name);
+        selectedCamp.arrival_status = 'on-site';
+      } catch {
+        // Non-fatal — equipment was lent; arrival may have been recorded by another device
+      }
     }
 
     const container = document.getElementById('tab-checkout');
@@ -434,7 +486,7 @@ async function finalise() {
     } else {
       toast('Error: ' + e.message);
       const btn = document.getElementById('co-confirm');
-      if (btn) { btn.disabled = false; btn.textContent = 'Confirm check out'; }
+      if (btn) { btn.disabled = false; btn.textContent = 'Confirm lend'; }
     }
   }
 }

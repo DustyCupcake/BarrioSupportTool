@@ -81,7 +81,7 @@ body {
 .btn.ghost:hover { background: var(--surface2); }
 .btn.sm { padding: 6px 12px; font-size: 12px; width: auto; margin-top: 0; }
 
-select, input[type="text"], input[type="password"], input[type="datetime-local"] {
+select, input[type="text"], input[type="password"], input[type="datetime-local"], input[type="number"] {
   width: 100%;
   padding: 9px 12px;
   font-family: 'Georgia', serif;

@@ -227,6 +227,92 @@ main { padding: 1.25rem; max-width: 520px; margin: 0 auto; }
 .h-time { font-size: 11px; color: var(--text3); white-space: nowrap; }
 .h-user { font-size: 11px; color: var(--text3); margin-top: 2px; }
 
+/* ── Barrios tab ───────────────────────────────────────────────────────── */
+.barrio-stats {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+.barrio-stat-chip {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 100px;
+  border: 0.5px solid var(--border-med);
+  color: var(--text2);
+  background: var(--surface);
+}
+
+.status-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+}
+.status-dot.expected { background: var(--border-med); }
+.status-dot.on-site  { background: var(--accent); }
+.status-dot.departed { background: var(--text3); opacity: .5; }
+
+.barrio-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 1.25rem;
+  border-bottom: 0.5px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+}
+.barrio-card:last-child { border-bottom: none; }
+.barrio-card:active { background: var(--surface2); }
+.barrio-card-body { flex: 1; min-width: 0; }
+.barrio-card-name { font-size: 14px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.barrio-card-arrow { color: var(--text3); font-size: 18px; flex-shrink: 0; }
+
+.barrio-status-label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; }
+.barrio-status-label.expected { color: var(--text3); }
+.barrio-status-label.on-site  { color: var(--accent-text); }
+.barrio-status-label.departed { color: var(--text3); }
+
+.items-out-badge {
+  font-size: 11px;
+  background: var(--warn-bg);
+  color: var(--warn);
+  border: 0.5px solid var(--warn-border);
+  border-radius: 100px;
+  padding: 2px 8px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.barrio-detail-section { }
+.barrio-detail-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 13px;
+  padding: 5px 0;
+  border-bottom: 0.5px solid var(--border);
+  gap: 10px;
+}
+.barrio-detail-row:last-child { border-bottom: none; }
+.barrio-detail-key { color: var(--text2); flex-shrink: 0; }
+
+.arrival-prompt-card {
+  border-color: var(--warn-border) !important;
+  background: var(--warn-bg) !important;
+}
+.arrival-prompt-card .card-label { color: var(--warn) !important; }
+
+.arrival-form-section {
+  border-top: 0.5px solid var(--border);
+  padding-top: 1rem;
+  margin-top: .75rem;
+}
+.arrival-form-section .card-label { margin-bottom: .6rem; }
+
 /* ── Check-in result card ──────────────────────────────────────────────── */
 .ci-result { text-align: center; padding: 1rem 0; }
 .ci-result .item-name { font-size: 18px; margin-bottom: .25rem; }
