@@ -4,7 +4,7 @@
  * Syncs automatically on reconnect.
  */
 
-import { post, setCsrf } from './api.js';
+import { post, setCsrf } from './api.js?v=1.0.0';
 
 const DB_NAME    = 'barrio_support';
 const DB_VERSION = 1;

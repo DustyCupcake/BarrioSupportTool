@@ -3,10 +3,10 @@
  * Step 1: select barrio  |  Step 2: scan items  |  Step 3: review & lend
  */
 
-import { get, post } from './api.js';
-import { Scanner } from './scanner.js';
-import { toast, switchTab } from './app.js';
-import { scanOverlay } from './scan-overlay.js';
+import { get, post } from './api.js?v=1.0.0';
+import { Scanner } from './scanner.js?v=1.0.0';
+import { toast, switchTab } from './app.js?v=1.0.0';
+import { scanOverlay } from './scan-overlay.js?v=1.0.0';
 
 let step         = 1;
 let selectedCamp = null;   // { id, name, arrival_status }
@@ -47,14 +47,14 @@ function renderStep1(container) {
     ${stepsHTML(1)}
     <div class="card">
       <div class="card-label">Select barrio</div>
-      <div class="camp-chip-wrap" id="co-chips"></div>
-      <div class="divider"><span>or scan barrio QR</span></div>
       <div class="video-wrap" style="display:none" id="co-camp-wrap">
         <video id="co-camp-video" playsinline muted></video>
         <div class="scan-overlay"><div class="scan-frame"><div class="scan-line"></div></div></div>
       </div>
-      <div class="scan-status" id="co-camp-status"></div>
+      <div class="scan-status" style="display:none" id="co-camp-status"></div>
       <button class="btn" id="co-scan-camp-btn" onclick="window._co.toggleCampScan()">Scan barrio QR</button>
+      <div class="divider"><span>or select:</span></div>
+      <div class="camp-chip-wrap" id="co-chips"></div>      
     </div>
     <button class="btn primary" id="co-next1" disabled onclick="window._co.goStep2()">Continue</button>
   `;
@@ -71,8 +71,8 @@ function renderChips(container) {
     return;
   }
   wrap.innerHTML = campList.map(c =>
-    `<button class="camp-chip${selectedCamp?.id === c.id ? ' selected' : ''}"
-      onclick="window._co.selectCamp(${c.id}, '${c.name.replace(/'/g, "\\'")}', '${c.arrival_status}')">${c.name}</button>`
+    `<button class="camp-chip ${selectedCamp?.id === c.id ? ' selected' : ''}" data-id="${c.id}"
+      onclick="window._co.selectCamp(${c.id}, '${c.name.replace(/'/g, "\\'")}', '${c.arrival_status}')"><span class="status-dot ${c.arrival_status}"></span> ${c.name}</button>`
   ).join('');
   window._co.selectCamp = selectCamp;
 }
@@ -81,7 +81,7 @@ function selectCamp(id, name, arrival_status) {
   const status = arrival_status ?? campList.find(c => c.id === id)?.arrival_status ?? 'expected';
   selectedCamp = { id, name, arrival_status: status };
   const chips = document.querySelectorAll('.camp-chip');
-  chips.forEach(c => c.classList.toggle('selected', c.textContent === name));
+  chips.forEach(c => c.classList.toggle('selected', Number(c.dataset.id) === id));
   const btn = document.getElementById('co-next1');
   if (btn) btn.disabled = false;
 }
@@ -94,11 +94,13 @@ async function toggleCampScan() {
   if (scanner) {
     stopScanner();
     wrap.style.display = 'none';
+    stat.style.display = 'none';
     btn.textContent = 'Scan barrio QR';
     return;
   }
 
   wrap.style.display = '';
+  stat.style.display = '';
   btn.textContent = 'Cancel scan';
   stat.textContent = 'Aim camera at barrio QR code…';
 
@@ -145,10 +147,11 @@ function showBarrioSuccess(match, wrap = null, btn = null, stat = null) {
       scanner = null;
       toggleCampScan();
     } else {
-      const container = document.getElementById('tab-checkout');
-      renderStep1(container);
+      window.location.href = '/';
     }
   };
+
+  const checkInLabel = match.arrival_status === 'expected' ? 'Check In Without Lending' : 'Go to Barrio';
 
   scanOverlay.show({
     state: 'success',
@@ -156,7 +159,7 @@ function showBarrioSuccess(match, wrap = null, btn = null, stat = null) {
     subtitle: null,
     buttons: [
       { label: 'Continue to Items', action: doConfirm },
-      { label: 'Check In Without Lending', action: doCheckInOnly },
+      { label: checkInLabel, action: doCheckInOnly },
       { label: 'Undo', action: doUndo },
     ],
   });

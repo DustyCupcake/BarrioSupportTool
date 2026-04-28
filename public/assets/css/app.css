@@ -78,7 +78,7 @@ main { padding: 1.25rem; max-width: 520px; margin: 0 auto; }
   transition: all .12s;
 }
 .camp-chip:hover { background: var(--surface2); }
-.camp-chip.selected { background: var(--accent); color: #fff; border-color: var(--accent); }
+.camp-chip.selected { background: var(--accent-light); border-color: var(--accent); }
 
 /* ── Scanner ───────────────────────────────────────────────────────────── */
 .video-wrap {
@@ -246,6 +246,28 @@ main { padding: 1.25rem; max-width: 520px; margin: 0 auto; }
   background: var(--surface);
 }
 
+.barrio-stat-chip.active {
+  background: var(--surface2);
+  border-color: var(--text2);
+  color: var(--text1);
+  font-weight: 500;
+}
+
+.barrio-clear-chip {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 100px;
+  border: 0.5px solid var(--border-med);
+  color: var(--text3);
+  background: var(--surface);
+  cursor: pointer;
+  user-select: none;
+}
+.barrio-clear-chip:active { background: var(--surface2); }
+
 .status-dot {
   width: 10px;
   height: 10px;
@@ -253,7 +275,7 @@ main { padding: 1.25rem; max-width: 520px; margin: 0 auto; }
   flex-shrink: 0;
   display: inline-block;
 }
-.status-dot.expected { background: var(--border-med); }
+.status-dot.expected { border: dashed 1px var(--text2); }
 .status-dot.on-site  { background: var(--accent); }
 .status-dot.departed { background: var(--text3); opacity: .5; }
 
@@ -288,7 +310,6 @@ main { padding: 1.25rem; max-width: 520px; margin: 0 auto; }
   flex-shrink: 0;
 }
 
-.barrio-detail-section { }
 .barrio-detail-row {
   display: flex;
   justify-content: space-between;

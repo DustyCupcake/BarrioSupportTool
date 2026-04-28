@@ -7,7 +7,7 @@ declare(strict_types=1);
 function start_session(): void {
     if (session_status() === PHP_SESSION_NONE) {
         session_set_cookie_params([
-            'lifetime' => 28800, // 8 hours
+            'lifetime' => 3600 * 24 * 3, // 3 days
             'path'     => '/',
             'secure'   => isset($_SERVER['HTTPS']),
             'httponly' => true,

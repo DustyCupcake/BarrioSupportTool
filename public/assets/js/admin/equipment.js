@@ -3,7 +3,7 @@
  * Two sub-tabs: Equipment Types | Items
  */
 
-import { get, post, put, del } from '../api.js';
+import { get, post, put, del } from '../api.js?v=1.0.0';
 
 let _toast;
 let _types = [];

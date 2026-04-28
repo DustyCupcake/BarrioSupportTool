@@ -1,6 +1,6 @@
 /**
  * Full-screen confirmation overlay shown after each QR scan result.
- * Usage: import { scanOverlay } from './scan-overlay.js'
+ * Usage: import { scanOverlay } from './scan-overlay.js?v=1.0.0'
  */
 
 class ScanOverlay {

@@ -2,10 +2,10 @@
  * Check-in tab — scan item QR, confirm return.
  */
 
-import { get, post } from './api.js';
-import { Scanner } from './scanner.js';
-import { toast } from './app.js';
-import { scanOverlay } from './scan-overlay.js';
+import { get, post } from './api.js?v=1.0.0';
+import { Scanner } from './scanner.js?v=1.0.0';
+import { toast } from './app.js?v=1.0.0';
+import { scanOverlay } from './scan-overlay.js?v=1.0.0';
 
 let scanner = null;
 let lastItem = null;

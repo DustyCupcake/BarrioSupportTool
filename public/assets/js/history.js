@@ -2,8 +2,8 @@
  * History tab — paginated transaction log.
  */
 
-import { get } from './api.js';
-import { toast } from './app.js';
+import { get } from './api.js?v=1.0.0';
+import { toast } from './app.js?v=1.0.0';
 
 const PAGE = 50;
 let offset = 0;

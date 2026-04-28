@@ -3,7 +3,7 @@
  * and offline fallback via the offline queue.
  */
 
-import { enqueue as offlineEnqueue } from './offline.js';
+import { enqueue as offlineEnqueue } from './offline.js?v=1.0.0';
 
 let _csrfToken = null;
 

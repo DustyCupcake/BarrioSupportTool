@@ -2,13 +2,15 @@
  * Barrios tab — list + detail views for barrio arrival/departure tracking.
  */
 
-import { get, post } from './api.js';
-import { toast } from './app.js';
-import { scanOverlay } from './scan-overlay.js';
+import { get, post } from './api.js?v=1.0.0';
+import { toast } from './app.js?v=1.0.0';
+import { scanOverlay } from './scan-overlay.js?v=1.0.0';
 
-let container   = null;
-let detailId    = null;   // null = list view, number = detail view
-let arrivalOpen = false;  // whether inline arrival form is expanded
+let container    = null;
+let detailId     = null;   // null = list view, number = detail view
+let arrivalOpen  = false;  // whether inline arrival form is expanded
+let allBarrios   = [];
+let activeFilter = null;   // null | 'expected' | 'on-site' | 'departed'
 
 export function init(el, barrioId = null) {
   container   = el;
@@ -26,8 +28,9 @@ export function destroy() {}
 // ─── List view ────────────────────────────────────────────────────────────────
 
 async function loadList() {
-  detailId    = null;
-  arrivalOpen = false;
+  detailId     = null;
+  arrivalOpen  = false;
+  activeFilter = null;
   container.innerHTML = `<div class="card"><div class="empty" style="padding:1.5rem 0">Loading…</div></div>`;
   try {
     const data = await get('/barrios');
@@ -39,36 +42,61 @@ async function loadList() {
 }
 
 function renderList(barrios) {
+  allBarrios = barrios;
+  renderFiltered();
+}
+
+function renderFiltered() {
   const counts = {
-    expected: barrios.filter(b => b.arrival_status === 'expected').length,
-    'on-site': barrios.filter(b => b.arrival_status === 'on-site').length,
-    departed:  barrios.filter(b => b.arrival_status === 'departed').length,
+    expected: allBarrios.filter(b => b.arrival_status === 'expected').length,
+    'on-site': allBarrios.filter(b => b.arrival_status === 'on-site').length,
+    departed:  allBarrios.filter(b => b.arrival_status === 'departed').length,
   };
+
+  const visible = activeFilter
+    ? allBarrios.filter(b => b.arrival_status === activeFilter)
+    : allBarrios;
+
+  const clearChip = activeFilter
+    ? `<div class="barrio-clear-chip" data-action="clear">× Clear</div>`
+    : '';
 
   container.innerHTML = `
     <div class="barrio-stats">
-      <div class="barrio-stat-chip expected">
+      <div class="barrio-stat-chip expected${activeFilter === 'expected' ? ' active' : ''}" data-filter="expected">
         <span class="status-dot expected"></span>
         ${counts.expected} Expected
       </div>
-      <div class="barrio-stat-chip on-site">
+      <div class="barrio-stat-chip on-site${activeFilter === 'on-site' ? ' active' : ''}" data-filter="on-site">
         <span class="status-dot on-site"></span>
         ${counts['on-site']} On Site
       </div>
-      <div class="barrio-stat-chip departed">
+      <div class="barrio-stat-chip departed${activeFilter === 'departed' ? ' active' : ''}" data-filter="departed">
         <span class="status-dot departed"></span>
         ${counts.departed} Departed
       </div>
+      ${clearChip}
     </div>
     <div class="card" style="padding:0">
-      ${barrios.length
-        ? barrios.map(b => barrioCardHTML(b)).join('')
+      ${visible.length
+        ? visible.map(b => barrioCardHTML(b)).join('')
         : '<div class="empty">No barrios configured</div>'
       }
     </div>
   `;
 
-  barrios.forEach(b => {
+  container.querySelectorAll('.barrio-stat-chip[data-filter]').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const f = chip.dataset.filter;
+      activeFilter = activeFilter === f ? null : f;
+      renderFiltered();
+    });
+  });
+
+  container.querySelector('.barrio-clear-chip')
+    ?.addEventListener('click', () => { activeFilter = null; renderFiltered(); });
+
+  visible.forEach(b => {
     container.querySelector(`[data-barrio-id="${b.id}"]`)
       ?.addEventListener('click', () => loadDetail(b.id));
   });

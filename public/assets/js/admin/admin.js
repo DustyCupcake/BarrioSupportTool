@@ -3,10 +3,10 @@
  * Handles session check, nav routing, and shared toast.
  */
 
-import { get, setCsrf } from '../api.js';
-import { initBarrios }   from './barrios.js';
-import { initEquipment } from './equipment.js';
-import { initUsers }     from './users.js';
+import { get, setCsrf } from '../api.js?v=1.0.0';
+import { initBarrios }   from './barrios.js?v=1.0.0';
+import { initEquipment } from './equipment.js?v=1.0.0';
+import { initUsers }     from './users.js?v=1.0.0';
 
 let toastTimer = null;
 

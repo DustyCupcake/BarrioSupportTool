@@ -2,7 +2,7 @@
  * Admin users section — list, create, update, deactivate, reset password.
  */
 
-import { get, post, put } from '../api.js';
+import { get, post, put } from '../api.js?v=1.0.0';
 
 let _toast;
 let _users = [];
