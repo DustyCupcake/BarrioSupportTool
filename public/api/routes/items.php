@@ -9,7 +9,7 @@ function handle_lookup(): void {
     if ($qr === '') json_error('qr parameter required');
 
     $stmt = db()->prepare(
-        'SELECT i.id, i.qr_code, i.status, i.notes,
+        'SELECT i.id, i.qr_code, i.status, i.notes, i.equipment_type_id,
                 t.name AS type_name, t.category,
                 b.id AS barrio_id, b.name AS barrio_name,
                 CONCAT(t.name, " #", i.item_number) AS display_name
@@ -24,11 +24,12 @@ function handle_lookup(): void {
     if (!$item) json_error('Item not found', 404);
 
     json_ok([
-        'id'           => (int)$item['id'],
-        'qr_code'      => $item['qr_code'],
-        'name'         => $item['display_name'],
-        'category'     => $item['category'],
-        'status'       => $item['status'],
+        'id'                => (int)$item['id'],
+        'qr_code'           => $item['qr_code'],
+        'name'              => $item['display_name'],
+        'category'          => $item['category'],
+        'status'            => $item['status'],
+        'equipment_type_id' => (int)$item['equipment_type_id'],
         'current_barrio' => $item['barrio_id']
             ? ['id' => (int)$item['barrio_id'], 'name' => $item['barrio_name']]
             : null,

@@ -11,6 +11,10 @@ export function setCsrf(token) {
   _csrfToken = token;
 }
 
+export function getCsrf() {
+  return _csrfToken;
+}
+
 export async function api(method, path, body = null) {
   const headers = { 'Content-Type': 'application/json' };
   if (_csrfToken && method !== 'GET') headers['X-CSRF-Token'] = _csrfToken;

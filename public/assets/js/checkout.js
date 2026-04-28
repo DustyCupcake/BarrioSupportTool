@@ -3,16 +3,18 @@
  * Step 1: select barrio  |  Step 2: scan items  |  Step 3: review & lend
  */
 
-import { get, post } from './api.js?v=1.0.0';
+import { get, post } from './api.js?v=1.0.1';
 import { Scanner } from './scanner.js?v=1.0.0';
 import { toast, switchTab } from './app.js?v=1.0.0';
 import { scanOverlay } from './scan-overlay.js?v=1.0.0';
 
-let step         = 1;
-let selectedCamp = null;   // { id, name, arrival_status }
-let campList     = [];
-let scannedItems = [];     // [{ qr, name, category, warn }]
-let scanner      = null;
+let step              = 1;
+let selectedCamp      = null;   // { id, name, arrival_status }
+let campList          = [];
+let scannedItems      = [];     // [{ qr, name, category, equipment_type_id, warn }]
+let scanner           = null;
+let _consumableTypes  = [];     // cached from /consumable-types
+let _barrioDetail     = null;   // cached GET /barrios/:id (entitlements + equipment_orders)
 
 export function init(container, preselectedBarrioId = null) {
   renderStep1(container);
@@ -21,26 +23,29 @@ export function init(container, preselectedBarrioId = null) {
 
 async function loadCamps(container, preselectedBarrioId = null) {
   try {
-    const data = await get('/camps');
-    campList = data.camps || [];
+    const [campsData, typesData] = await Promise.all([
+      get('/camps'),
+      get('/consumable-types'),
+    ]);
+    campList         = campsData.camps  || [];
+    _consumableTypes = typesData.types  || [];
     renderChips(container);
     if (preselectedBarrioId) {
       const match = campList.find(c => String(c.id) === String(preselectedBarrioId));
-      if (match) {
-        showBarrioSuccess(match);
-      }
+      if (match) showBarrioSuccess(match);
     }
   } catch (e) {
     toast('Could not load barrios: ' + e.message);
   }
 }
 
-// ─── Step 1: Select barrio ────────────────────────────────────────────────
+// ─── Step 1: Select barrio ────────────────────────────────────────────────────
 
 function renderStep1(container) {
-  step = 1;
-  selectedCamp = null;
-  scannedItems = [];
+  step           = 1;
+  selectedCamp   = null;
+  scannedItems   = [];
+  _barrioDetail  = null;
   stopScanner();
 
   container.innerHTML = `
@@ -54,7 +59,7 @@ function renderStep1(container) {
       <div class="scan-status" style="display:none" id="co-camp-status"></div>
       <button class="btn" id="co-scan-camp-btn" onclick="window._co.toggleCampScan()">Scan barrio QR</button>
       <div class="divider"><span>or select:</span></div>
-      <div class="camp-chip-wrap" id="co-chips"></div>      
+      <div class="camp-chip-wrap" id="co-chips"></div>
     </div>
     <button class="btn primary" id="co-next1" disabled onclick="window._co.goStep2()">Continue</button>
   `;
@@ -208,13 +213,19 @@ function showBarrioError(wrap, btn, stat) {
   });
 }
 
-// ─── Step 2: Scan items ───────────────────────────────────────────────────
+// ─── Step 2: Scan items ───────────────────────────────────────────────────────
 
 async function goStep2() {
   if (!selectedCamp) return;
   const container = document.getElementById('tab-checkout');
   step = 2;
   stopScanner();
+
+  // Fetch barrio detail for equipment orders (non-blocking)
+  _barrioDetail = null;
+  get('/barrios/' + selectedCamp.id)
+    .then(d => { _barrioDetail = d; renderOrderSummary(); })
+    .catch(() => {});
 
   const arrivalPrompt = selectedCamp.arrival_status === 'expected' ? `
     <div class="card arrival-prompt-card">
@@ -227,6 +238,7 @@ async function goStep2() {
     ${stepsHTML(2)}
     <div class="camp-badge"><span class="camp-badge-dot"></span>${selectedCamp.name}</div>
     ${arrivalPrompt}
+    <div id="co-order-summary"></div>
     <div class="card">
       <div class="card-label">Scan items</div>
       <div class="video-wrap" id="co-items-wrap">
@@ -255,6 +267,39 @@ async function goStep2() {
   }
 }
 
+function renderOrderSummary() {
+  const wrap = document.getElementById('co-order-summary');
+  if (!wrap || !_barrioDetail) return;
+
+  const orders = _barrioDetail.equipment_orders || [];
+  if (!orders.length) return;
+
+  // Count scanned items by equipment_type_id
+  const scannedByType = {};
+  for (const item of scannedItems) {
+    if (item.equipment_type_id) {
+      scannedByType[item.equipment_type_id] = (scannedByType[item.equipment_type_id] || 0) + 1;
+    }
+  }
+
+  wrap.innerHTML = `
+    <div class="card" style="padding:.75rem 1rem">
+      <div class="card-label" style="margin-bottom:.4rem">Equipment ordered</div>
+      ${orders.map(o => {
+        const scanned = scannedByType[o.equipment_type_id] || 0;
+        const met     = scanned >= o.quantity_ordered;
+        const over    = scanned > o.quantity_ordered;
+        const color   = over ? 'var(--warn)' : met ? 'var(--success,#22c55e)' : 'var(--text2)';
+        const icon    = over ? ' ⚠' : met ? ' ✓' : '';
+        return `<div style="display:flex;justify-content:space-between;font-size:13px;margin-bottom:.2rem">
+          <span>${_esc(o.type_name)}</span>
+          <span style="color:${color};font-weight:${met ? '600' : '400'}">${scanned} / ${o.quantity_ordered}${icon}</span>
+        </div>`;
+      }).join('')}
+    </div>
+  `;
+}
+
 async function handleItemScan(qr) {
   const stat = document.getElementById('co-items-status');
   if (scannedItems.find(i => i.qr === qr)) {
@@ -276,14 +321,16 @@ async function handleItemScan(qr) {
     const item = await get('/items/lookup', { qr });
     const entry = {
       qr,
-      name: item.name,
-      category: item.category,
+      name:              item.name,
+      category:          item.category,
+      equipment_type_id: item.equipment_type_id ?? null,
       warn: item.status === 'checked-out' ? `Out to ${item.current_barrio?.name}` : null,
     };
 
     const doAdd = () => {
       scannedItems.push(entry);
       renderScannedList();
+      renderOrderSummary();
     };
 
     const doContinue = () => {
@@ -352,6 +399,7 @@ async function restartItemScanner() {
 function removeItem(qr) {
   scannedItems = scannedItems.filter(i => i.qr !== qr);
   renderScannedList();
+  renderOrderSummary();
 }
 
 function renderScannedList() {
@@ -382,29 +430,57 @@ function renderScannedList() {
   `).join('');
 }
 
-// ─── Step 3: Review & finalise ────────────────────────────────────────────
+// ─── Step 3: Review & finalise ────────────────────────────────────────────────
 
 function goStep3() {
   const container = document.getElementById('tab-checkout');
   step = 3;
   stopScanner();
 
-  const hasWarns   = scannedItems.some(i => i.warn);
+  const hasWarns    = scannedItems.some(i => i.warn);
   const needArrival = selectedCamp.arrival_status === 'expected';
 
-  const arrivalForm = needArrival ? `
-    <div class="arrival-form-section">
-      <div class="card-label">Record Arrival</div>
-      <label>Water vouchers given</label>
-      <input type="number" id="co-water" min="0" value="0" inputmode="numeric" style="margin-bottom:.6rem">
-      <label>Ice tokens given</label>
-      <input type="number" id="co-ice" min="0" value="0" inputmode="numeric" style="margin-bottom:.6rem">
-      <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text);margin-bottom:.25rem">
-        <input type="checkbox" id="co-orientation" style="width:auto;margin:0;accent-color:var(--accent)">
-        Orientation completed
-      </label>
-    </div>
-  ` : '';
+  // Build arrival distribution form from entitlements (or all consumable types if none set)
+  let arrivalForm = '';
+  if (needArrival && _consumableTypes.length) {
+    const entitlements = _barrioDetail?.entitlements || [];
+    const itemInputs = _consumableTypes.map(ct => {
+      const existing = entitlements.find(e => e.type_id === ct.id);
+      const purchased = existing?.purchased ?? 0;
+      const remaining = existing?.remaining ?? purchased;
+      const defaultVal = remaining > 0 ? remaining : 0;
+      return `
+        <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.5rem">
+          <label style="flex:1;font-size:14px;color:var(--text);margin:0">
+            ${_esc(ct.name)}
+            ${purchased > 0 ? `<span style="font-size:12px;color:var(--text3)">(${purchased} purchased)</span>` : ''}
+          </label>
+          <input type="number" class="arrival-cons-input" data-type-id="${ct.id}"
+            min="0" value="${defaultVal}" inputmode="numeric" style="max-width:90px">
+        </div>`;
+    }).join('');
+
+    arrivalForm = `
+      <div class="arrival-form-section">
+        <div class="card-label">Record Arrival — Consumables Given</div>
+        ${itemInputs}
+        <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text);margin-bottom:.25rem;margin-top:.25rem">
+          <input type="checkbox" id="co-orientation" style="width:auto;margin:0;accent-color:var(--accent)">
+          Orientation completed
+        </label>
+      </div>
+    `;
+  } else if (needArrival) {
+    arrivalForm = `
+      <div class="arrival-form-section">
+        <div class="card-label">Record Arrival</div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text);margin-bottom:.25rem">
+          <input type="checkbox" id="co-orientation" style="width:auto;margin:0;accent-color:var(--accent)">
+          Orientation completed
+        </label>
+      </div>
+    `;
+  }
 
   container.innerHTML = `
     ${stepsHTML(3)}
@@ -461,14 +537,19 @@ async function finalise() {
 
     // If this barrio was expected, also record arrival
     if (selectedCamp.arrival_status === 'expected') {
-      const water  = parseInt(document.getElementById('co-water')?.value || '0', 10);
-      const ice    = parseInt(document.getElementById('co-ice')?.value || '0', 10);
       const orient = document.getElementById('co-orientation')?.checked || false;
+
+      // Gather consumable distribution amounts
+      const items = [];
+      document.querySelectorAll('.arrival-cons-input').forEach(inp => {
+        const qty = parseInt(inp.value || '0', 10);
+        if (qty > 0) items.push({ type_id: +inp.dataset.typeId, quantity: qty });
+      });
+
       try {
         await post('/barrio-arrival', {
           barrio_id:        selectedCamp.id,
-          water_vouchers:   water,
-          ice_tokens:       ice,
+          items,
           orientation_done: orient,
         });
         toast('Arrival recorded for ' + selectedCamp.name);
@@ -494,7 +575,7 @@ async function finalise() {
   }
 }
 
-// ─── Helpers ──────────────────────────────────────────────────────────────
+// ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function stopScanner() {
   if (scanner) { scanner.stop(); scanner = null; }
@@ -509,4 +590,8 @@ function stepsHTML(active) {
     return (i > 0 ? '<div class="step-line"></div>' : '') +
       `<div class="step ${cls}"><div class="step-num">${num}</div>${label}</div>`;
   }).join('') + '</div>';
+}
+
+function _esc(s) {
+  return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }

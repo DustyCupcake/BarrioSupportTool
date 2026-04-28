@@ -62,6 +62,17 @@ $routes = [
     ['POST', '/barrio-arrival',   'routes/barrios.php', 'handle_barrio_arrival'],
     ['POST', '/barrio-departure', 'routes/barrios.php', 'handle_barrio_departure'],
 
+    // Consumables & entitlements
+    ['GET',    '/consumable-types',              'routes/consumables.php', 'handle_list_consumable_types'],
+    ['POST',   '/barrio-distribute',             'routes/consumables.php', 'handle_barrio_distribute'],
+    ['GET',    '/admin/consumable-types',        'routes/consumables.php', 'handle_admin_consumable_types'],
+    ['POST',   '/admin/consumable-types',        'routes/consumables.php', 'handle_admin_consumable_types'],
+    ['PUT',    '/admin/consumable-types',        'routes/consumables.php', 'handle_admin_consumable_types'],
+    ['DELETE', '/admin/consumable-types',        'routes/consumables.php', 'handle_admin_consumable_types'],
+    ['PUT',    '/admin/barrio-entitlements',     'routes/consumables.php', 'handle_admin_barrio_entitlements'],
+    ['PUT',    '/admin/barrio-equipment-orders', 'routes/consumables.php', 'handle_admin_equipment_orders'],
+    ['POST',   '/admin/barrios/import-csv',      'routes/consumables.php', 'handle_import_csv'],
+
     // Admin — barrios
     ['GET',    '/admin/barrios',        'routes/admin/barrios.php', 'handle_list'],
     ['POST',   '/admin/barrios',        'routes/admin/barrios.php', 'handle_create'],

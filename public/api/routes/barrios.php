@@ -14,10 +14,8 @@ function handle_list_barrios(): void {
     )->fetchAll();
 
     foreach ($rows as &$r) {
-        $r['id']             = (int)$r['id'];
-        $r['items_out_count'] = (int)$r['items_out_count'];
-        $r['water_vouchers'] = (int)$r['water_vouchers'];
-        $r['ice_tokens']     = (int)$r['ice_tokens'];
+        $r['id']               = (int)$r['id'];
+        $r['items_out_count']  = (int)$r['items_out_count'];
         $r['orientation_done'] = (bool)$r['orientation_done'];
     }
     unset($r);
@@ -42,10 +40,8 @@ function handle_get_barrio(): void {
     $barrio = $stmt->fetch();
     if (!$barrio) json_error('Barrio not found', 404);
 
-    $barrio['id']             = (int)$barrio['id'];
+    $barrio['id']              = (int)$barrio['id'];
     $barrio['items_out_count'] = (int)$barrio['items_out_count'];
-    $barrio['water_vouchers'] = (int)$barrio['water_vouchers'];
-    $barrio['ice_tokens']     = (int)$barrio['ice_tokens'];
     $barrio['orientation_done'] = (bool)$barrio['orientation_done'];
 
     $items = db()->prepare(
@@ -59,7 +55,54 @@ function handle_get_barrio(): void {
     );
     $items->execute([$id]);
 
-    json_ok(['barrio' => $barrio, 'items_out' => $items->fetchAll()]);
+    // Consumable entitlements
+    $ent_stmt = db()->prepare(
+        'SELECT be.type_id, ct.key_name, ct.name, ct.sort_order,
+                be.purchased, be.distributed,
+                (CAST(be.purchased AS SIGNED) - CAST(be.distributed AS SIGNED)) AS remaining
+         FROM barrio_entitlements be
+         JOIN consumable_types ct ON ct.id = be.type_id
+         WHERE be.barrio_id = ?
+         ORDER BY ct.sort_order, ct.name'
+    );
+    $ent_stmt->execute([$id]);
+    $entitlements = $ent_stmt->fetchAll();
+    foreach ($entitlements as &$e) {
+        $e['type_id']     = (int)$e['type_id'];
+        $e['sort_order']  = (int)$e['sort_order'];
+        $e['purchased']   = (int)$e['purchased'];
+        $e['distributed'] = (int)$e['distributed'];
+        $e['remaining']   = (int)$e['remaining'];
+    }
+    unset($e);
+
+    // Equipment orders with live checked-out counts
+    $ord_stmt = db()->prepare(
+        'SELECT beo.equipment_type_id, et.name AS type_name,
+                beo.quantity_ordered,
+                (SELECT COUNT(*) FROM equipment_items ei
+                 WHERE ei.current_barrio_id = ? AND ei.equipment_type_id = beo.equipment_type_id
+                   AND ei.status = \'checked-out\') AS quantity_checked_out
+         FROM barrio_equipment_orders beo
+         JOIN equipment_types et ON et.id = beo.equipment_type_id
+         WHERE beo.barrio_id = ?
+         ORDER BY et.name'
+    );
+    $ord_stmt->execute([$id, $id]);
+    $equipment_orders = $ord_stmt->fetchAll();
+    foreach ($equipment_orders as &$o) {
+        $o['equipment_type_id']    = (int)$o['equipment_type_id'];
+        $o['quantity_ordered']     = (int)$o['quantity_ordered'];
+        $o['quantity_checked_out'] = (int)$o['quantity_checked_out'];
+    }
+    unset($o);
+
+    json_ok([
+        'barrio'           => $barrio,
+        'items_out'        => $items->fetchAll(),
+        'entitlements'     => $entitlements,
+        'equipment_orders' => $equipment_orders,
+    ]);
 }
 
 function handle_barrio_arrival(): void {
@@ -67,47 +110,88 @@ function handle_barrio_arrival(): void {
     $user = require_auth();
     verify_csrf();
 
-    $b        = body();
+    $b         = body();
     $barrio_id = (int)($b['barrio_id'] ?? 0);
     if (!$barrio_id) json_error('barrio_id required');
 
-    $water       = max(0, (int)($b['water_vouchers'] ?? 0));
-    $ice         = max(0, (int)($b['ice_tokens'] ?? 0));
     $orientation = !empty($b['orientation_done']) ? 1 : 0;
 
-    $stmt = db()->prepare(
-        'UPDATE barrios
-         SET arrival_status = \'on-site\',
-             arrived_at      = NOW(),
-             arrived_by      = ?,
-             arrived_by_name = ?,
-             water_vouchers  = ?,
-             ice_tokens      = ?,
-             orientation_done = ?
-         WHERE id = ? AND arrival_status = \'expected\''
-    );
-    $stmt->execute([
-        $user['id'],
-        $user['display_name'],
-        $water,
-        $ice,
-        $orientation,
-        $barrio_id,
-    ]);
-
-    if ($stmt->rowCount() === 0) {
-        $check = db()->prepare('SELECT arrival_status FROM barrios WHERE id = ?');
-        $check->execute([$barrio_id]);
-        $row = $check->fetch();
-        if (!$row) json_error('Barrio not found', 404);
-        json_error('Barrio already ' . $row['arrival_status'], 409);
+    // Accept new-style items array OR legacy water_vouchers/ice_tokens keys
+    $dist_items = [];
+    if (!empty($b['items']) && is_array($b['items'])) {
+        $dist_items = $b['items'];
+    } else {
+        // Backward compat: map legacy keys to type_ids
+        $legacy_keys = [];
+        if (isset($b['water_vouchers']) && (int)$b['water_vouchers'] > 0) {
+            $legacy_keys['water_vouchers'] = (int)$b['water_vouchers'];
+        }
+        if (isset($b['ice_tokens']) && (int)$b['ice_tokens'] > 0) {
+            $legacy_keys['ice_tokens'] = (int)$b['ice_tokens'];
+        }
+        if ($legacy_keys) {
+            $placeholders = implode(',', array_fill(0, count($legacy_keys), '?'));
+            $type_rows = db()->prepare(
+                "SELECT id, key_name FROM consumable_types WHERE key_name IN ($placeholders)"
+            );
+            $type_rows->execute(array_keys($legacy_keys));
+            foreach ($type_rows->fetchAll() as $tr) {
+                $dist_items[] = ['type_id' => (int)$tr['id'], 'quantity' => $legacy_keys[$tr['key_name']]];
+            }
+        }
     }
 
-    $row = db()->prepare('SELECT * FROM barrios WHERE id = ?');
+    $db = db();
+    $db->beginTransaction();
+    try {
+        $stmt = $db->prepare(
+            'UPDATE barrios
+             SET arrival_status   = \'on-site\',
+                 arrived_at       = NOW(),
+                 arrived_by       = ?,
+                 arrived_by_name  = ?,
+                 orientation_done = ?
+             WHERE id = ? AND arrival_status = \'expected\''
+        );
+        $stmt->execute([$user['id'], $user['display_name'], $orientation, $barrio_id]);
+
+        if ($stmt->rowCount() === 0) {
+            $db->rollBack();
+            $check = $db->prepare('SELECT arrival_status FROM barrios WHERE id = ?');
+            $check->execute([$barrio_id]);
+            $row = $check->fetch();
+            if (!$row) json_error('Barrio not found', 404);
+            json_error('Barrio already ' . $row['arrival_status'], 409);
+        }
+
+        // Record initial distribution events
+        foreach ($dist_items as $item) {
+            $type_id  = (int)($item['type_id'] ?? 0);
+            $quantity = (int)($item['quantity'] ?? 0);
+            if (!$type_id || $quantity <= 0) continue;
+
+            $db->prepare(
+                'INSERT INTO distribution_events
+                    (barrio_id, type_id, quantity, performed_by, user_name_cache, occurred_at)
+                 VALUES (?,?,?,?,?,NOW())'
+            )->execute([$barrio_id, $type_id, $quantity, $user['id'], $user['display_name']]);
+
+            $db->prepare(
+                'INSERT INTO barrio_entitlements (barrio_id, type_id, purchased, distributed)
+                 VALUES (?,?,0,?)
+                 ON DUPLICATE KEY UPDATE distributed = distributed + VALUES(distributed)'
+            )->execute([$barrio_id, $type_id, $quantity]);
+        }
+
+        $db->commit();
+    } catch (\Throwable $e) {
+        $db->rollBack();
+        throw $e;
+    }
+
+    $row = $db->prepare('SELECT * FROM barrios WHERE id = ?');
     $row->execute([$barrio_id]);
     $barrio = $row->fetch();
-    $barrio['water_vouchers']  = (int)$barrio['water_vouchers'];
-    $barrio['ice_tokens']      = (int)$barrio['ice_tokens'];
     $barrio['orientation_done'] = (bool)$barrio['orientation_done'];
 
     json_ok(['success' => true, 'barrio' => $barrio]);

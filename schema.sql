@@ -28,8 +28,6 @@ CREATE TABLE IF NOT EXISTS barrios (
     arrived_at       DATETIME      NULL,
     arrived_by       INT UNSIGNED  NULL,
     arrived_by_name  VARCHAR(128)  NULL,
-    water_vouchers   SMALLINT UNSIGNED NOT NULL DEFAULT 0,
-    ice_tokens       SMALLINT UNSIGNED NOT NULL DEFAULT 0,
     orientation_done TINYINT(1)    NOT NULL DEFAULT 0,
     departed_at      DATETIME      NULL,
     departed_by      INT UNSIGNED  NULL,
@@ -40,6 +38,49 @@ CREATE TABLE IF NOT EXISTS barrios (
     KEY idx_arrival_status (arrival_status),
     CONSTRAINT fk_barrio_arrived_by  FOREIGN KEY (arrived_by)  REFERENCES users(id) ON DELETE SET NULL,
     CONSTRAINT fk_barrio_departed_by FOREIGN KEY (departed_by) REFERENCES users(id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ─── Consumable types ─────────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS consumable_types (
+    id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    name       VARCHAR(128) NOT NULL,
+    key_name   VARCHAR(64)  NOT NULL,
+    sort_order SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_key  (key_name),
+    UNIQUE KEY uq_name (name)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ─── Barrio consumable entitlements ───────────────────────────────────────
+CREATE TABLE IF NOT EXISTS barrio_entitlements (
+    id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    barrio_id   INT UNSIGNED NOT NULL,
+    type_id     INT UNSIGNED NOT NULL,
+    purchased   SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    distributed SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_barrio_type (barrio_id, type_id),
+    CONSTRAINT fk_ent_barrio FOREIGN KEY (barrio_id) REFERENCES barrios(id) ON DELETE CASCADE,
+    CONSTRAINT fk_ent_type   FOREIGN KEY (type_id)   REFERENCES consumable_types(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ─── Distribution event log ───────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS distribution_events (
+    id              INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    barrio_id       INT UNSIGNED NOT NULL,
+    type_id         INT UNSIGNED NOT NULL,
+    quantity        SMALLINT     NOT NULL,
+    performed_by    INT UNSIGNED,
+    user_name_cache VARCHAR(128),
+    occurred_at     DATETIME NOT NULL,
+    notes           TEXT,
+    PRIMARY KEY (id),
+    KEY idx_barrio   (barrio_id),
+    KEY idx_occurred (occurred_at),
+    CONSTRAINT fk_dist_barrio FOREIGN KEY (barrio_id)    REFERENCES barrios(id),
+    CONSTRAINT fk_dist_type   FOREIGN KEY (type_id)      REFERENCES consumable_types(id),
+    CONSTRAINT fk_dist_user   FOREIGN KEY (performed_by) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ─── Equipment types ──────────────────────────────────────────────────────
@@ -69,6 +110,18 @@ CREATE TABLE IF NOT EXISTS equipment_items (
     KEY idx_barrio (current_barrio_id),
     CONSTRAINT fk_item_type   FOREIGN KEY (equipment_type_id) REFERENCES equipment_types(id),
     CONSTRAINT fk_item_barrio FOREIGN KEY (current_barrio_id) REFERENCES barrios(id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- ─── Barrio equipment orders ──────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS barrio_equipment_orders (
+    id                INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    barrio_id         INT UNSIGNED NOT NULL,
+    equipment_type_id INT UNSIGNED NOT NULL,
+    quantity_ordered  SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    PRIMARY KEY (id),
+    UNIQUE KEY uq_barrio_type (barrio_id, equipment_type_id),
+    CONSTRAINT fk_eqord_barrio FOREIGN KEY (barrio_id)         REFERENCES barrios(id) ON DELETE CASCADE,
+    CONSTRAINT fk_eqord_type   FOREIGN KEY (equipment_type_id) REFERENCES equipment_types(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ─── Transactions ─────────────────────────────────────────────────────────

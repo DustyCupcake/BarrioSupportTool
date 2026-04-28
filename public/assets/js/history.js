@@ -2,7 +2,7 @@
  * History tab — paginated transaction log.
  */
 
-import { get } from './api.js?v=1.0.0';
+import { get } from './api.js?v=1.0.1';
 import { toast } from './app.js?v=1.0.0';
 
 const PAGE = 50;

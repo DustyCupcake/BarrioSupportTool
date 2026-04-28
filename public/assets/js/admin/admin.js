@@ -3,10 +3,11 @@
  * Handles session check, nav routing, and shared toast.
  */
 
-import { get, setCsrf } from '../api.js?v=1.0.0';
-import { initBarrios }   from './barrios.js?v=1.0.0';
-import { initEquipment } from './equipment.js?v=1.0.0';
-import { initUsers }     from './users.js?v=1.0.0';
+import { get, setCsrf }    from '../api.js?v=1.0.1';
+import { initBarrios }     from './barrios.js?v=1.0.1';
+import { initEquipment }   from './equipment.js?v=1.0.0';
+import { initUsers }       from './users.js?v=1.0.0';
+import { initConsumables } from './consumables.js?v=1.0.0';
 
 let toastTimer = null;
 
@@ -65,10 +66,11 @@ function navigate(section) {
   if (!content) return;
 
   switch (section) {
-    case 'barrios':   initBarrios(content, toast);   break;
-    case 'equipment': initEquipment(content, toast); break;
-    case 'users':     initUsers(content, toast);     break;
-    default:          initBarrios(content, toast);
+    case 'barrios':     initBarrios(content, toast);     break;
+    case 'equipment':   initEquipment(content, toast);   break;
+    case 'users':       initUsers(content, toast);       break;
+    case 'consumables': initConsumables(content, toast); break;
+    default:            initBarrios(content, toast);
   }
 }
 

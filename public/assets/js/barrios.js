@@ -2,7 +2,7 @@
  * Barrios tab — list + detail views for barrio arrival/departure tracking.
  */
 
-import { get, post } from './api.js?v=1.0.0';
+import { get, post } from './api.js?v=1.0.1';
 import { toast } from './app.js?v=1.0.0';
 import { scanOverlay } from './scan-overlay.js?v=1.0.0';
 
@@ -127,14 +127,14 @@ async function loadDetail(id) {
   container.innerHTML = `<div class="card"><div class="empty" style="padding:1.5rem 0">Loading…</div></div>`;
   try {
     const data = await get('/barrios/' + id);
-    renderDetail(data.barrio, data.items_out || []);
+    renderDetail(data.barrio, data.items_out || [], data.entitlements || [], data.equipment_orders || []);
   } catch (e) {
     toast('Could not load barrio: ' + e.message);
     loadList();
   }
 }
 
-function renderDetail(barrio, itemsOut) {
+function renderDetail(barrio, itemsOut, entitlements, equipmentOrders) {
   const status = barrio.arrival_status;
 
   const arrivalSection = status !== 'expected' ? `
@@ -149,17 +149,31 @@ function renderDetail(barrio, itemsOut) {
         <span>${_esc(barrio.arrived_by_name ?? '—')}</span>
       </div>
       <div class="barrio-detail-row">
-        <span class="barrio-detail-key">Water vouchers</span>
-        <span>${barrio.water_vouchers}</span>
-      </div>
-      <div class="barrio-detail-row">
-        <span class="barrio-detail-key">Ice tokens</span>
-        <span>${barrio.ice_tokens}</span>
-      </div>
-      <div class="barrio-detail-row">
         <span class="barrio-detail-key">Orientation</span>
         <span>${barrio.orientation_done ? '✓ Complete' : '✗ Not recorded'}</span>
       </div>
+      ${entitlementsHTML(entitlements, status)}
+    </div>
+  ` : (entitlements.length ? `
+    <div class="barrio-detail-section">
+      ${entitlementsHTML(entitlements, status)}
+    </div>
+  ` : '');
+
+  const equipOrdersSection = equipmentOrders.length ? `
+    <div class="barrio-detail-section" style="margin-top:.75rem">
+      <div class="card-label">Equipment orders</div>
+      ${equipmentOrders.map(o => {
+        const over = o.quantity_checked_out > o.quantity_ordered;
+        return `
+          <div class="barrio-detail-row">
+            <span class="barrio-detail-key">${_esc(o.type_name)}</span>
+            <span style="${over ? 'color:var(--warn)' : ''}">
+              ${o.quantity_checked_out} / ${o.quantity_ordered} out
+              ${over ? ' ⚠' : o.quantity_checked_out === o.quantity_ordered && o.quantity_ordered > 0 ? ' ✓' : ''}
+            </span>
+          </div>`;
+      }).join('')}
     </div>
   ` : '';
 
@@ -203,7 +217,11 @@ function renderDetail(barrio, itemsOut) {
     `;
   } else if (status === 'on-site') {
     actionSection = `
-      <button class="btn danger" id="barrio-departure-btn" style="margin-top:0">Record Departure</button>
+      <div style="display:flex;gap:.5rem;flex-wrap:wrap">
+        ${entitlements.length ? `<button class="btn" id="barrio-distribute-btn" style="margin-top:0;flex:1">Distribute Items</button>` : ''}
+        <button class="btn danger" id="barrio-departure-btn" style="margin-top:0;flex:1">Record Departure</button>
+      </div>
+      <div id="barrio-distribute-area"></div>
     `;
   }
 
@@ -216,6 +234,7 @@ function renderDetail(barrio, itemsOut) {
     </div>
     <div class="card">
       ${arrivalSection}
+      ${equipOrdersSection}
       ${departureSection}
       ${itemsSection}
     </div>
@@ -226,27 +245,70 @@ function renderDetail(barrio, itemsOut) {
 
   if (status === 'expected') {
     container.querySelector('#barrio-arrival-btn')?.addEventListener('click', () => {
-      showArrivalForm(barrio);
+      showArrivalForm(barrio, entitlements);
     });
   } else if (status === 'on-site') {
+    container.querySelector('#barrio-distribute-btn')?.addEventListener('click', () => {
+      showDistributeForm(barrio, entitlements);
+    });
     container.querySelector('#barrio-departure-btn')?.addEventListener('click', () => {
       confirmDeparture(barrio.id, itemsOut.length, barrio.name);
     });
   }
 }
 
-function showArrivalForm(barrio) {
+// ─── Entitlements HTML helper ─────────────────────────────────────────────────
+
+function entitlementsHTML(entitlements, status) {
+  if (!entitlements.length) return '';
+  return `
+    <div style="margin-top:.75rem">
+      <div class="card-label">Consumables</div>
+      <div style="display:grid;grid-template-columns:1fr repeat(3,auto);gap:.25rem .75rem;align-items:center;font-size:13px;margin-top:.4rem">
+        <span style="color:var(--text3)">Item</span>
+        <span style="color:var(--text3);text-align:right">Purchased</span>
+        <span style="color:var(--text3);text-align:right">Given</span>
+        <span style="color:var(--text3);text-align:right">Remaining</span>
+        ${entitlements.map(e => {
+          const rem = e.remaining;
+          const remColor = rem < 0 ? 'color:var(--danger)' : rem === 0 ? 'color:var(--success,#22c55e)' : 'color:var(--warn)';
+          return `
+            <span>${_esc(e.name)}</span>
+            <span style="text-align:right">${e.purchased}</span>
+            <span style="text-align:right">${e.distributed}</span>
+            <span style="text-align:right;font-weight:600;${remColor}">${rem < 0 ? '⚠ ' : ''}${rem}</span>
+          `;
+        }).join('')}
+      </div>
+    </div>
+  `;
+}
+
+// ─── Arrival form ──────────────────────────────────────────────────────────────
+
+function showArrivalForm(barrio, entitlements) {
   const area = container.querySelector('#barrio-arrival-area');
   if (!area) return;
+
+  const itemInputsHTML = entitlements.length
+    ? entitlements.map(e => `
+        <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.5rem">
+          <label style="flex:1;font-size:14px;color:var(--text);margin:0">
+            ${_esc(e.name)} given
+            ${e.purchased > 0 ? `<span style="color:var(--text3);font-size:12px">(${e.purchased} purchased)</span>` : ''}
+          </label>
+          <input type="number" class="arrival-item-input" data-type-id="${e.type_id}"
+            min="0" value="${e.remaining > 0 ? e.remaining : 0}"
+            inputmode="numeric" style="max-width:90px">
+        </div>
+      `).join('')
+    : '<p style="font-size:13px;color:var(--text3)">No consumable entitlements set for this barrio.</p>';
 
   area.innerHTML = `
     <div class="card arrival-form-section" style="margin-top:0">
       <div class="card-label">Record Arrival</div>
-      <label>Water vouchers given</label>
-      <input type="number" id="ba-water" min="0" value="0" inputmode="numeric" style="margin-bottom:.65rem">
-      <label>Ice tokens given</label>
-      <input type="number" id="ba-ice" min="0" value="0" inputmode="numeric" style="margin-bottom:.65rem">
-      <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text);margin-bottom:.75rem">
+      ${itemInputsHTML}
+      <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text);margin-bottom:.75rem;margin-top:.25rem">
         <input type="checkbox" id="ba-orientation" style="width:auto;margin:0;accent-color:var(--accent)">
         Orientation completed
       </label>
@@ -257,23 +319,26 @@ function showArrivalForm(barrio) {
 
   area.querySelector('#ba-cancel')?.addEventListener('click', () => {
     area.innerHTML = `<button class="btn primary" id="barrio-arrival-btn" style="margin-top:0">Record Arrival</button>`;
-    area.querySelector('#barrio-arrival-btn')?.addEventListener('click', () => showArrivalForm(barrio));
+    area.querySelector('#barrio-arrival-btn')?.addEventListener('click', () => showArrivalForm(barrio, entitlements));
   });
 
   area.querySelector('#ba-confirm')?.addEventListener('click', async () => {
     const btn    = area.querySelector('#ba-confirm');
-    const water  = parseInt(area.querySelector('#ba-water').value || '0', 10);
-    const ice    = parseInt(area.querySelector('#ba-ice').value || '0', 10);
     const orient = area.querySelector('#ba-orientation').checked;
+
+    const items = [];
+    area.querySelectorAll('.arrival-item-input').forEach(inp => {
+      const qty = parseInt(inp.value || '0', 10);
+      if (qty > 0) items.push({ type_id: +inp.dataset.typeId, quantity: qty });
+    });
 
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner"></span> Recording…';
 
     try {
       await post('/barrio-arrival', {
-        barrio_id:       barrio.id,
-        water_vouchers:  water,
-        ice_tokens:      ice,
+        barrio_id:        barrio.id,
+        items,
         orientation_done: orient,
       });
       toast('Arrival recorded for ' + barrio.name);
@@ -290,6 +355,67 @@ function showArrivalForm(barrio) {
     }
   });
 }
+
+// ─── Distribute form ──────────────────────────────────────────────────────────
+
+function showDistributeForm(barrio, entitlements) {
+  const area = container.querySelector('#barrio-distribute-area');
+  if (!area) return;
+
+  const allDone = entitlements.every(e => e.remaining <= 0);
+
+  const itemInputsHTML = entitlements.map(e => {
+    const defaultVal = Math.max(0, e.remaining);
+    const remColor = e.remaining < 0 ? 'color:var(--danger)' : e.remaining === 0 ? 'color:var(--success,#22c55e)' : 'color:var(--warn)';
+    return `
+      <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.5rem">
+        <label style="flex:1;font-size:14px;color:var(--text);margin:0">
+          ${_esc(e.name)}
+          <span style="font-size:12px;${remColor}">(${e.remaining} remaining)</span>
+        </label>
+        <input type="number" class="dist-item-input" data-type-id="${e.type_id}"
+          min="0" value="${defaultVal}" inputmode="numeric" style="max-width:90px">
+      </div>
+    `;
+  }).join('');
+
+  area.innerHTML = `
+    <div class="card arrival-form-section" style="margin-top:.75rem">
+      <div class="card-label">Distribute Items${allDone ? ' <span style="color:var(--success,#22c55e);font-size:12px">— all distributed</span>' : ''}</div>
+      ${itemInputsHTML}
+      <button class="btn primary" id="dist-confirm" style="margin-top:.5rem">Confirm</button>
+      <button class="btn ghost" id="dist-cancel">Cancel</button>
+    </div>
+  `;
+
+  area.querySelector('#dist-cancel')?.addEventListener('click', () => { area.innerHTML = ''; });
+
+  area.querySelector('#dist-confirm')?.addEventListener('click', async () => {
+    const btn = area.querySelector('#dist-confirm');
+    const items = [];
+    area.querySelectorAll('.dist-item-input').forEach(inp => {
+      const qty = parseInt(inp.value || '0', 10);
+      if (qty !== 0) items.push({ type_id: +inp.dataset.typeId, quantity: qty });
+    });
+
+    if (!items.length) { toast('Enter at least one quantity'); return; }
+
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner"></span> Recording…';
+
+    try {
+      await post('/barrio-distribute', { barrio_id: barrio.id, items });
+      toast('Distribution recorded for ' + barrio.name);
+      loadDetail(barrio.id);
+    } catch (e) {
+      toast('Error: ' + e.message);
+      btn.disabled = false;
+      btn.textContent = 'Confirm';
+    }
+  });
+}
+
+// ─── Departure ────────────────────────────────────────────────────────────────
 
 async function confirmDeparture(barrioId, itemsOutCount, barrioName) {
   if (itemsOutCount > 0) {
