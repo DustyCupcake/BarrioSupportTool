@@ -145,6 +145,9 @@
 .badge.available { background: var(--accent-light); color: var(--accent-text); }
 .badge.checked-out { background: var(--warn-bg); color: var(--warn); }
 .badge.retired { background: var(--surface2); color: var(--text3); }
+.badge.used { background: #2a1f4a; color: #b39ddb; }
+.badge.validator { background: #1a2f3a; color: #4dd0e1; }
+.badge.voucher { background: #1a2f3a; color: #4dd0e1; }
 
 /* ── Section tabs (within admin pages) ────────────────────────────────── */
 .section-tabs {
@@ -261,3 +264,21 @@
 
 /* ── QR prefix hint ────────────────────────────────────────────────────── */
 .hint { font-size: 11px; color: var(--text3); margin-top: -.25rem; margin-bottom: .5rem; font-style: italic; }
+
+/* ── Checkbox row (equipment type form) ────────────────────────────────── */
+.checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  font-size: 13px;
+  color: var(--text2);
+  margin-bottom: .75rem;
+  cursor: pointer;
+}
+.checkbox-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--accent);
+  cursor: pointer;
+  flex-shrink: 0;
+}

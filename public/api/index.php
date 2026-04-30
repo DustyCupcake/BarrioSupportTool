@@ -53,6 +53,7 @@ $routes = [
     ['GET',  '/inventory',              'routes/items.php',         'handle_inventory'],
     ['POST', '/checkout',               'routes/transactions.php',  'handle_checkout'],
     ['POST', '/checkin',                'routes/transactions.php',  'handle_checkin'],
+    ['POST', '/items/use',              'routes/transactions.php',  'handle_used'],
     ['GET',  '/history',                'routes/history.php',       'handle_history'],
     ['POST', '/sync/offline-queue',     'routes/sync.php',          'handle_sync'],
 

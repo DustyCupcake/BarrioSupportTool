@@ -54,7 +54,7 @@ function renderTable() {
           <tr class="user-row" onclick="window._users.openPanel(${u.id})">
             <td>${esc(u.display_name)}</td>
             <td style="font-family:monospace;font-size:13px;color:var(--text2)">${esc(u.username)}</td>
-            <td><span class="badge ${u.role}">${u.role}</span></td>
+            <td><span class="badge ${u.role}">${u.role === 'validator' ? 'Validator' : u.role}</span></td>
             <td><span class="badge ${u.is_active ? 'active' : 'inactive'}">${u.is_active ? 'Active' : 'Inactive'}</span></td>
             <td style="font-size:12px;color:var(--text3)">${u.last_login ? fmtDate(u.last_login) : 'Never'}</td>
           </tr>
@@ -93,6 +93,7 @@ function openPanel(id) {
             <select id="u-role">
               <option value="staff" ${u.role === 'staff' ? 'selected' : ''}>Staff</option>
               <option value="admin" ${u.role === 'admin' ? 'selected' : ''}>Admin</option>
+              <option value="validator" ${u.role === 'validator' ? 'selected' : ''}>Validator</option>
             </select>
           </div>
           <div class="field">
@@ -161,6 +162,7 @@ function showForm(u) {
           <select id="u-role">
             <option value="staff" ${u?.role === 'staff' ? 'selected' : ''}>Staff</option>
             <option value="admin" ${u?.role === 'admin' ? 'selected' : ''}>Admin</option>
+            <option value="validator" ${u?.role === 'validator' ? 'selected' : ''}>Validator</option>
           </select>
         </div>
         ${u ? `

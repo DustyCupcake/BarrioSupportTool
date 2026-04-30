@@ -5,8 +5,8 @@
 
 import { get, setCsrf }    from '../api.js?v=1.0.1';
 import { initBarrios }     from './barrios.js?v=1.0.1';
-import { initEquipment }   from './equipment.js?v=1.0.0';
-import { initUsers }       from './users.js?v=1.0.0';
+import { initEquipment }   from './equipment.js?v=1.0.1';
+import { initUsers }       from './users.js?v=1.0.1';
 import { initConsumables } from './consumables.js?v=1.0.0';
 
 let toastTimer = null;

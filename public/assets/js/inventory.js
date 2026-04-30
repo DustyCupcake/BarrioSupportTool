@@ -3,7 +3,7 @@
  */
 
 import { get } from './api.js?v=1.0.1';
-import { toast } from './app.js?v=1.0.0';
+import { toast } from './app.js?v=1.0.1';
 
 export async function init(container) {
   container.innerHTML = `

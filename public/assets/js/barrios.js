@@ -3,7 +3,7 @@
  */
 
 import { get, post } from './api.js?v=1.0.1';
-import { toast } from './app.js?v=1.0.0';
+import { toast } from './app.js?v=1.0.1';
 import { scanOverlay } from './scan-overlay.js?v=1.0.0';
 
 let container    = null;

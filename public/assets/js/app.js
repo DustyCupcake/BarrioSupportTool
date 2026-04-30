@@ -6,10 +6,11 @@
 import { get, setCsrf } from './api.js?v=1.0.1';
 import { initOfflineSync } from './offline.js?v=1.0.0';
 import { init as initCheckout } from './checkout.js?v=1.0.1';
-import { init as initCheckin, destroy as destroyCheckin } from './checkin.js?v=1.0.0';
+import { init as initCheckin, destroy as destroyCheckin } from './checkin.js?v=1.0.1';
 import { init as initBarrios, destroy as destroyBarrios } from './barrios.js?v=1.0.1';
 import { init as initInventory } from './inventory.js?v=1.0.0';
 import { init as initHistory } from './history.js?v=1.0.0';
+import { init as initValidate, destroy as destroyValidate } from './validate.js?v=1.0.0';
 
 let currentTab     = null;
 let toastTimer     = null;
@@ -41,6 +42,12 @@ async function boot() {
   const adminLink = document.getElementById('admin-link');
   if (adminLink && user.role === 'admin') adminLink.style.display = '';
 
+  // Validator gets a stripped-down single-mode view
+  if (user.role === 'validator') {
+    bootValidator();
+    return;
+  }
+
   // Init offline sync
   initOfflineSync(toast);
 
@@ -64,12 +71,32 @@ async function boot() {
   switchTab('checkout', barrioId);
 }
 
+function bootValidator() {
+  // Hide the full nav, show only a minimal header
+  const nav = document.querySelector('nav');
+  if (nav) nav.style.display = 'none';
+
+  document.getElementById('logout-btn')?.addEventListener('click', async () => {
+    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+    window.location.href = '/login.html';
+  });
+
+  // Use the validate panel
+  document.querySelectorAll('.tab-panel').forEach(p => p.style.display = 'none');
+  const panel = document.getElementById('tab-validate');
+  if (panel) {
+    panel.style.display = '';
+    initValidate(panel, true);
+  }
+}
+
 export function switchTab(name, extra = null) {
   if (currentTab === name && !extra) return;
 
   // Destroy previous tab state
   if (currentTab === 'checkin') destroyCheckin();
   if (currentTab === 'barrios') destroyBarrios();
+  if (currentTab === 'validate') destroyValidate();
 
   currentTab = name;
 
@@ -86,10 +113,11 @@ export function switchTab(name, extra = null) {
 
   switch (name) {
     case 'checkout':  initCheckout(panel, extra);  break;
-    case 'checkin':   initCheckin(panel);   break;
-    case 'barrios':   initBarrios(panel, extra);   break;
-    case 'inventory': initInventory(panel); break;
-    case 'history':   initHistory(panel);   break;
+    case 'checkin':   initCheckin(panel);           break;
+    case 'barrios':   initBarrios(panel, extra);    break;
+    case 'inventory': initInventory(panel);         break;
+    case 'history':   initHistory(panel);           break;
+    case 'validate':  initValidate(panel, true);    break;
   }
 }
 

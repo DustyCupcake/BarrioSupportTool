@@ -5,7 +5,7 @@
 
 import { get, post } from './api.js?v=1.0.1';
 import { Scanner } from './scanner.js?v=1.0.0';
-import { toast, switchTab } from './app.js?v=1.0.0';
+import { toast, switchTab } from './app.js?v=1.0.1';
 import { scanOverlay } from './scan-overlay.js?v=1.0.0';
 
 let step              = 1;

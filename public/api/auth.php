@@ -38,6 +38,14 @@ function require_admin(): array {
     return $user;
 }
 
+function require_staff_or_admin(): array {
+    $user = require_auth();
+    if (!in_array($user['role'], ['admin', 'staff'], true)) {
+        json_error('Forbidden', 403);
+    }
+    return $user;
+}
+
 function csrf_token(): string {
     start_session();
     if (empty($_SESSION['csrf_token'])) {

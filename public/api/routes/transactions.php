@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 function handle_checkout(): void {
     require_method('POST');
-    $user = require_auth();
+    $user = require_staff_or_admin();
     verify_csrf();
 
     $b         = body();
@@ -77,7 +77,7 @@ function handle_checkout(): void {
 
 function handle_checkin(): void {
     require_method('POST');
-    $user = require_auth();
+    $user = require_staff_or_admin();
     verify_csrf();
 
     $b       = body();
@@ -106,6 +106,54 @@ function handle_checkin(): void {
             'INSERT INTO transactions (type, item_id, barrio_id, performed_by, user_name_cache, occurred_at)
              VALUES ("checkin", ?, NULL, ?, ?, NOW())'
         )->execute([$item['id'], $user['id'], $user['display_name']]);
+
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        json_error('Database error: ' . $e->getMessage(), 500);
+    }
+
+    json_ok(['success' => true]);
+}
+
+function handle_used(): void {
+    require_method('POST');
+    $user = require_auth();
+    verify_csrf();
+
+    $b       = body();
+    $item_qr = trim($b['item_qr'] ?? '');
+
+    if ($item_qr === '') json_error('item_qr required');
+
+    $stmt = db()->prepare(
+        'SELECT i.id, i.status, i.current_barrio_id, t.secure_qr
+         FROM equipment_items i
+         JOIN equipment_types t ON t.id = i.equipment_type_id
+         WHERE i.qr_code = ?'
+    );
+    $stmt->execute([$item_qr]);
+    $item = $stmt->fetch();
+
+    if (!$item) json_error('Item not found', 404);
+    if (!$item['secure_qr']) json_error('Not a secure QR item', 409);
+    if ($item['status'] !== 'checked-out') {
+        json_ok(['success' => false, 'error' => 'not_checked_out']);
+    }
+
+    $barrio_id = $item['current_barrio_id'];
+
+    $pdo = db();
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare(
+            'UPDATE equipment_items SET status = "used", current_barrio_id = NULL WHERE id = ?'
+        )->execute([$item['id']]);
+
+        $pdo->prepare(
+            'INSERT INTO transactions (type, item_id, barrio_id, performed_by, user_name_cache, occurred_at)
+             VALUES ("used", ?, ?, ?, ?, NOW())'
+        )->execute([$item['id'], $barrio_id, $user['id'], $user['display_name']]);
 
         $pdo->commit();
     } catch (Throwable $e) {

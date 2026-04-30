@@ -30,7 +30,7 @@ function handle_create(): void {
     if ($username === '' || $display_name === '' || strlen($password) < 8) {
         json_error('username, display_name, and password (min 8 chars) required');
     }
-    if (!in_array($role, ['admin', 'staff'], true)) json_error('invalid role');
+    if (!in_array($role, ['admin', 'staff', 'validator'], true)) json_error('invalid role');
 
     $hash = password_hash($password, PASSWORD_BCRYPT);
 
@@ -66,7 +66,7 @@ function handle_update(): void {
 
     if ($display_name !== '') { $sets[] = 'display_name = ?'; $params[] = $display_name; }
     if ($role !== null) {
-        if (!in_array($role, ['admin', 'staff'], true)) json_error('invalid role');
+        if (!in_array($role, ['admin', 'staff', 'validator'], true)) json_error('invalid role');
         $sets[]   = 'role = ?';
         $params[] = $role;
     }

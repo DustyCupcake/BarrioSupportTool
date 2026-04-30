@@ -460,3 +460,49 @@ main { padding: 1.25rem; max-width: 520px; margin: 0 auto; }
   min-height: 44px;
   cursor: pointer;
 }
+
+/* ── Mode toggle (Scan In tab) ─────────────────────────────────────────── */
+.mode-toggle-wrap {
+  display: flex;
+  justify-content: center;
+  margin-bottom: 1rem;
+}
+.mode-toggle {
+  display: inline-flex;
+  background: var(--surface2);
+  border: 0.5px solid var(--border-med);
+  border-radius: 100px;
+  padding: 3px;
+  gap: 2px;
+}
+.mode-toggle button {
+  font-family: 'Georgia', serif;
+  font-size: 13px;
+  background: none;
+  border: none;
+  border-radius: 100px;
+  padding: 6px 16px;
+  cursor: pointer;
+  color: var(--text2);
+  transition: background .15s, color .15s;
+}
+.mode-toggle button.active {
+  background: var(--surface);
+  color: var(--accent);
+  box-shadow: 0 1px 3px rgba(0,0,0,.15);
+}
+
+/* ── Text link button (validate manual entry) ──────────────────────────── */
+.btn-text-link {
+  display: block;
+  margin: .75rem auto 0;
+  background: none;
+  border: none;
+  font-family: 'Georgia', serif;
+  font-size: 13px;
+  color: var(--text3);
+  cursor: pointer;
+  text-decoration: underline;
+  padding: 4px 8px;
+}
+.btn-text-link:hover { color: var(--text2); }

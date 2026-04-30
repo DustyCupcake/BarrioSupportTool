@@ -1,14 +1,16 @@
 /**
- * Check-in tab — scan item QR, confirm return.
+ * Scan In tab — return equipment or validate vouchers.
  */
 
 import { get, post } from './api.js?v=1.0.1';
 import { Scanner } from './scanner.js?v=1.0.0';
-import { toast } from './app.js?v=1.0.0';
+import { toast } from './app.js?v=1.0.1';
 import { scanOverlay } from './scan-overlay.js?v=1.0.0';
+import { init as initValidate, destroy as destroyValidate } from './validate.js?v=1.0.0';
 
-let scanner = null;
-let lastItem = null;
+let scanner      = null;
+let lastItem     = null;
+let validateMode = false;
 
 export function init(container) {
   render(container);
@@ -16,11 +18,37 @@ export function init(container) {
 
 export function destroy() {
   if (scanner) { scanner.stop(); scanner = null; }
+  destroyValidate();
 }
 
 function render(container) {
   lastItem = null;
+
+  if (validateMode) {
+    container.innerHTML = `
+      <div class="mode-toggle-wrap">
+        <div class="mode-toggle">
+          <button onclick="window._ci.setMode(false)">Return equipment</button>
+          <button class="active" onclick="window._ci.setMode(true)">Validate voucher</button>
+        </div>
+      </div>
+    `;
+    window._ci = { setMode: (v) => setMode(v, container) };
+    const inner = document.createElement('div');
+    container.appendChild(inner);
+    initValidate(inner, false);
+    return;
+  }
+
+  if (scanner) { scanner.stop(); scanner = null; }
+
   container.innerHTML = `
+    <div class="mode-toggle-wrap">
+      <div class="mode-toggle">
+        <button class="active" onclick="window._ci.setMode(false)">Return equipment</button>
+        <button onclick="window._ci.setMode(true)">Validate voucher</button>
+      </div>
+    </div>
     <div class="card">
       <div class="card-label">Scan item to return</div>
       <div class="video-wrap" id="ci-video-wrap">
@@ -31,7 +59,15 @@ function render(container) {
     </div>
   `;
 
+  window._ci = { setMode: (v) => setMode(v, container) };
   startScanner(container);
+}
+
+function setMode(v, container) {
+  validateMode = v;
+  destroyValidate();
+  if (scanner) { scanner.stop(); scanner = null; }
+  render(container);
 }
 
 async function startScanner(container) {

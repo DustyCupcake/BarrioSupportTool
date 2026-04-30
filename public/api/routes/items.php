@@ -10,7 +10,7 @@ function handle_lookup(): void {
 
     $stmt = db()->prepare(
         'SELECT i.id, i.qr_code, i.status, i.notes, i.equipment_type_id,
-                t.name AS type_name, t.category,
+                t.name AS type_name, t.category, t.secure_qr,
                 b.id AS barrio_id, b.name AS barrio_name,
                 CONCAT(t.name, " #", i.item_number) AS display_name
          FROM equipment_items i
@@ -29,6 +29,7 @@ function handle_lookup(): void {
         'name'              => $item['display_name'],
         'category'          => $item['category'],
         'status'            => $item['status'],
+        'secure_qr'         => (bool)$item['secure_qr'],
         'equipment_type_id' => (int)$item['equipment_type_id'],
         'current_barrio' => $item['barrio_id']
             ? ['id' => (int)$item['barrio_id'], 'name' => $item['barrio_name']]

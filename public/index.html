@@ -6,7 +6,7 @@
 <title>Barrio Support</title>
 <link rel="manifest" href="/manifest.json">
 <link rel="stylesheet" href="/assets/css/main.css?v=1.0.0">
-<link rel="stylesheet" href="/assets/css/app.css?v=1.0.0">
+<link rel="stylesheet" href="/assets/css/app.css?v=1.0.1">
 </head>
 <body>
 
@@ -21,7 +21,7 @@
   </div>
   <nav>
     <button class="active" data-tab="checkout">Lend</button>
-    <button data-tab="checkin">Return</button>
+    <button data-tab="checkin">Scan In</button>
     <button data-tab="barrios">Barrios</button>
     <button data-tab="inventory">Inventory</button>
     <button data-tab="history">History</button>
@@ -34,11 +34,12 @@
   <div class="tab-panel" id="tab-barrios"   style="display:none"></div>
   <div class="tab-panel" id="tab-inventory" style="display:none"></div>
   <div class="tab-panel" id="tab-history"   style="display:none"></div>
+  <div class="tab-panel" id="tab-validate"  style="display:none"></div>
 </main>
 
 <div id="toast"></div>
 
 <script src="/assets/vendor/jsqr.min.js?v=1.0.0"></script>
-<script type="module" src="/assets/js/app.js?v=1.0.0"></script>
+<script type="module" src="/assets/js/app.js?v=1.0.1"></script>
 </body>
 </html>

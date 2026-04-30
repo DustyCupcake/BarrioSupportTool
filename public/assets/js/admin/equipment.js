@@ -79,7 +79,10 @@ function renderTypesTable() {
       <tbody>
         ${_types.map(t => `
           <tr>
-            <td>${esc(t.name)}</td>
+            <td>
+              ${esc(t.name)}
+              ${t.secure_qr ? '<span class="badge voucher" style="margin-left:.4rem;font-size:10px">Voucher</span>' : ''}
+            </td>
             <td>${t.item_count}</td>
             <td>
               <div class="table-actions">
@@ -117,6 +120,10 @@ function showTypeForm(t) {
           <input type="text" id="et-cat" value="${esc(t?.category ?? '')}" placeholder="e.g. Power" maxlength="64">
         </div>
       </div>
+      <label class="checkbox-row">
+        <input type="checkbox" id="et-secure" ${t?.secure_qr ? 'checked' : ''}>
+        Secure QR — random 5-digit codes, voucher mode
+      </label>
       <div class="form-actions">
         <button class="btn primary sm" onclick="window._eq.saveType()">Save</button>
         <button class="btn sm" onclick="document.getElementById('eq-form-area').innerHTML=''">Cancel</button>
@@ -127,17 +134,18 @@ function showTypeForm(t) {
 }
 
 async function saveType() {
-  const id   = document.getElementById('et-id').value;
-  const name = document.getElementById('et-name').value.trim();
-  const cat  = document.getElementById('et-cat').value.trim();
+  const id        = document.getElementById('et-id').value;
+  const name      = document.getElementById('et-name').value.trim();
+  const cat       = document.getElementById('et-cat').value.trim();
+  const secure_qr = document.getElementById('et-secure').checked;
   if (!name) { _toast('Name required'); return; }
 
   try {
     if (id) {
-      await put('/admin/equipment-types', { id: +id, name, category: cat });
+      await put('/admin/equipment-types', { id: +id, name, category: cat, secure_qr });
       _toast('Type updated');
     } else {
-      await post('/admin/equipment-types', { name, category: cat });
+      await post('/admin/equipment-types', { name, category: cat, secure_qr });
       _toast('Type created');
     }
     document.getElementById('eq-form-area').innerHTML = '';
