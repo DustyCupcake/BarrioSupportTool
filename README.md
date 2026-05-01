@@ -6,16 +6,25 @@ An equipment checkout and asset tracking system built for camp operations. Staff
 
 **Staff**
 - QR-based equipment checkout (3-step flow: select barrio → scan items → confirm)
-- Equipment check-in
+- Equipment scan-in (return) with full-screen confirmation overlay
+- Voucher validation mode — toggle in the Scan In tab to validate secure QR vouchers
 - Barrio arrival / departure tracking
 - Real-time inventory view (available, checked out, current holder)
 - Full transaction history
 - Offline queuing — transactions save locally and sync automatically on reconnect
 - Consumables distribution (water, ice, or custom types)
 
+**Validators** (dedicated role)
+- Stripped-down single-screen app showing only the voucher validation scanner
+- Green overlay for valid vouchers (checked out) with "Mark as used" action
+- Red overlay for invalid vouchers (already used, not found, wrong QR type)
+- Yellow overlay for unreadable codes with manual entry fallback
+- Non-voucher QR codes show a red error — no other app access
+
 **Admin**
-- User management (create staff accounts, assign roles, reset passwords)
+- User management (create staff/validator accounts, assign roles, reset passwords)
 - Equipment catalog (types + individual items with QR codes)
+- **Secure QR** flag on equipment types — items get random 5-digit codes instead of sequential numbers, for use as physical vouchers that barrios cannot predict
 - Bulk QR sheet generation for printing equipment labels
 - Barrio configuration (entitlements, equipment orders)
 - Consumable types and purchase tracking
@@ -81,6 +90,12 @@ SETUP_TOKEN=<long_random_string>
 mysql -u your_db_user -p barrio_support < schema.sql
 ```
 
+If upgrading an existing installation, apply any migration files in the repo root:
+
+```bash
+mysql -u your_db_user -p barrio_support < migrate_secure_qr.sql
+```
+
 ### 3. Set the document root
 
 Point your web server's document root to the `/public` directory. The `.htaccess` file handles URL rewriting for the API router.
@@ -91,7 +106,9 @@ Visit `https://yourdomain.com/setup.php?token=<your_SETUP_TOKEN>` and follow the
 
 ### 5. Log in
 
-Go to `/login.html`. Staff use the main app at `/`, admins access the admin panel at `/admin/`.
+Go to `/login.html`. Staff and validators use the main app at `/`, admins access the admin panel at `/admin/`.
+
+> **Validators** see a stripped-down view with only the voucher scanner. All other tabs and navigation are hidden for this role.
 
 ## API Overview
 
@@ -104,7 +121,8 @@ All endpoints are under `/api/`. Requests require an active session cookie and a
 | `GET` | `/items/lookup?qr=<code>` | Look up item by QR code |
 | `GET` | `/inventory` | All equipment with status |
 | `POST` | `/checkout` | Check out items to a barrio |
-| `POST` | `/checkin` | Return items to inventory |
+| `POST` | `/checkin` | Return items to inventory (staff/admin only) |
+| `POST` | `/items/use` | Mark a secure QR voucher as used (all roles) |
 | `GET` | `/history` | Transaction history |
 | `GET` | `/barrios` | List all barrios |
 | `POST` | `/barrio-arrival` | Mark barrio as arrived |
@@ -126,6 +144,8 @@ The app registers a service worker that caches the app shell for fast loads and 
 - Row-level locking (`SELECT ... FOR UPDATE`) prevents concurrent double-checkouts
 - All checkout/check-in operations run inside database transactions
 - Admin routes enforce role checks server-side
+- Validator role is locked to voucher validation only — checkout, check-in, and barrio management endpoints return 403
+- Secure QR vouchers use cryptographically random 5-digit numbers (`random_int`) — codes are unpredictable and cannot be guessed in advance
 
 ## Requirements
 
