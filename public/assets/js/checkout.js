@@ -29,12 +29,30 @@ async function loadCamps(container, preselectedBarrioId = null) {
     ]);
     campList         = campsData.camps  || [];
     _consumableTypes = typesData.types  || [];
+    try { localStorage.setItem('barrio_camps', JSON.stringify(campList)); } catch {}
+    try { localStorage.setItem('barrio_consumable_types', JSON.stringify(_consumableTypes)); } catch {}
     renderChips(container);
     if (preselectedBarrioId) {
       const match = campList.find(c => String(c.id) === String(preselectedBarrioId));
       if (match) showBarrioSuccess(match);
     }
   } catch (e) {
+    if (!navigator.onLine) {
+      try {
+        const cc = localStorage.getItem('barrio_camps');
+        if (cc) campList = JSON.parse(cc);
+        const ct = localStorage.getItem('barrio_consumable_types');
+        if (ct) _consumableTypes = JSON.parse(ct);
+      } catch {}
+      if (campList.length) {
+        renderChips(container);
+        if (preselectedBarrioId) {
+          const match = campList.find(c => String(c.id) === String(preselectedBarrioId));
+          if (match) showBarrioSuccess(match);
+        }
+        return;
+      }
+    }
     toast('Could not load barrios: ' + e.message);
   }
 }
@@ -318,7 +336,18 @@ async function handleItemScan(qr) {
 
   if (stat) stat.textContent = 'Looking up…';
   try {
-    const item = await get('/items/lookup', { qr });
+    let item;
+
+    if (!navigator.onLine) {
+      const cached = localStorage.getItem('barrio_item:' + qr);
+      if (cached) item = JSON.parse(cached);
+    }
+
+    if (!item) {
+      item = await get('/items/lookup', { qr });
+      try { localStorage.setItem('barrio_item:' + qr, JSON.stringify(item)); } catch {}
+    }
+
     const entry = {
       qr,
       name:              item.name,
@@ -375,6 +404,27 @@ async function handleItemScan(qr) {
         onCancel: doOK,
       });
     };
+
+    if (!e.status && !navigator.onLine) {
+      const doAddAnyway = () => {
+        scannedItems.push({ qr, name: qr, category: null, equipment_type_id: null, warn: null });
+        renderScannedList();
+        renderOrderSummary();
+        if (stat) stat.textContent = '';
+        scanOverlay.hide();
+        restartItemScanner();
+      };
+      scanOverlay.show({
+        state: 'warning',
+        title: 'Offline',
+        subtitle: 'Item details unavailable — add by QR?',
+        buttons: [
+          { label: 'Add Anyway', action: doAddAnyway },
+          { label: 'Cancel', action: doOK },
+        ],
+      });
+      return;
+    }
 
     scanOverlay.show({
       state: 'error',
@@ -526,6 +576,14 @@ async function finalise() {
       item_qrs:  scannedItems.map(i => i.qr),
       force:     true,
     });
+
+    if (result.__offline) {
+      toast('Saved offline — will sync when connected');
+      const container = document.getElementById('tab-checkout');
+      renderStep1(container);
+      loadCamps(container);
+      return;
+    }
 
     const failed = result.results?.filter(r => !r.success) ?? [];
 

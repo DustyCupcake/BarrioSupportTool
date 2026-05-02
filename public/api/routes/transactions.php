@@ -91,7 +91,7 @@ function handle_checkin(): void {
 
     if (!$item) json_error('Item not found', 404);
 
-    if ($item['status'] !== 'checked-out') {
+    if (!in_array($item['status'], ['checked-out', 'activated'], true)) {
         json_ok(['success' => false, 'error' => 'not_checked_out']);
     }
 
@@ -137,8 +137,8 @@ function handle_used(): void {
 
     if (!$item) json_error('Item not found', 404);
     if (!$item['secure_qr']) json_error('Not a secure QR item', 409);
-    if ($item['status'] !== 'checked-out') {
-        json_ok(['success' => false, 'error' => 'not_checked_out']);
+    if ($item['status'] !== 'activated') {
+        json_ok(['success' => false, 'error' => 'not_activated']);
     }
 
     $barrio_id = $item['current_barrio_id'];
@@ -162,4 +162,61 @@ function handle_used(): void {
     }
 
     json_ok(['success' => true]);
+}
+
+function handle_activate(): void {
+    require_method('POST');
+    $user = require_staff_or_admin();
+    verify_csrf();
+
+    $b       = body();
+    $item_qr = trim($b['item_qr'] ?? '');
+
+    if ($item_qr === '') json_error('item_qr required');
+
+    $stmt = db()->prepare(
+        'SELECT i.id, i.status, i.current_barrio_id, t.secure_qr,
+                CONCAT(t.name, " #", i.item_number) AS display_name,
+                b.name AS barrio_name
+         FROM equipment_items i
+         JOIN equipment_types t ON t.id = i.equipment_type_id
+         LEFT JOIN barrios b ON b.id = i.current_barrio_id
+         WHERE i.qr_code = ?'
+    );
+    $stmt->execute([$item_qr]);
+    $item = $stmt->fetch();
+
+    if (!$item) json_error('Item not found', 404);
+    if (!$item['secure_qr']) json_error('Not a voucher', 409);
+
+    if ($item['status'] === 'activated') {
+        json_ok(['success' => false, 'error' => 'already_activated',
+                 'name' => $item['display_name'], 'barrio' => $item['barrio_name']]);
+    }
+    if ($item['status'] !== 'checked-out') {
+        json_ok(['success' => false, 'error' => 'not_checked_out',
+                 'name' => $item['display_name']]);
+    }
+
+    $barrio_id = $item['current_barrio_id'];
+
+    $pdo = db();
+    $pdo->beginTransaction();
+    try {
+        $pdo->prepare(
+            'UPDATE equipment_items SET status = "activated" WHERE id = ?'
+        )->execute([$item['id']]);
+
+        $pdo->prepare(
+            'INSERT INTO transactions (type, item_id, barrio_id, performed_by, user_name_cache, occurred_at)
+             VALUES ("activated", ?, ?, ?, ?, NOW())'
+        )->execute([$item['id'], $barrio_id, $user['id'], $user['display_name']]);
+
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        json_error('Database error: ' . $e->getMessage(), 500);
+    }
+
+    json_ok(['success' => true, 'name' => $item['display_name'], 'barrio' => $item['barrio_name']]);
 }

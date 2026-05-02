@@ -3,7 +3,7 @@
  * Cache version: bump CACHE_VER when deploying CSS/JS changes.
  */
 
-const CACHE_VER  = 'v1';
+const CACHE_VER  = 'v2';
 const CACHE_NAME = 'barrio-' + CACHE_VER;
 
 const APP_SHELL = [
@@ -12,14 +12,18 @@ const APP_SHELL = [
   '/assets/css/main.css?v=1.0.0',
   '/assets/css/app.css?v=1.0.1',
   '/assets/vendor/jsqr.min.js?v=1.0.0',
-  '/assets/js/app.js?v=1.0.1',
+  '/assets/js/app.js?v=1.0.2',
   '/assets/js/api.js?v=1.0.1',
   '/assets/js/offline.js?v=1.0.0',
   '/assets/js/scanner.js?v=1.0.0',
-  '/assets/js/checkout.js?v=1.0.1',
-  '/assets/js/checkin.js?v=1.0.1',
+  '/assets/js/checkout.js?v=1.0.2',
+  '/assets/js/checkin.js?v=1.0.3',
   '/assets/js/inventory.js?v=1.0.0',
   '/assets/js/history.js?v=1.0.0',
+  '/assets/js/barrios.js?v=1.0.1',
+  '/assets/js/validate.js?v=1.0.2',
+  '/assets/js/activate.js?v=1.0.0',
+  '/assets/js/scan-overlay.js?v=1.0.0',
 ];
 
 // ── Install: cache app shell ───────────────────────────────────────────────
@@ -58,6 +62,8 @@ self.addEventListener('fetch', event => {
           caches.open(CACHE_NAME).then(c => c.put(request, clone));
         }
         return resp;
+      }).catch(() => {
+        if (request.mode === 'navigate') return caches.match('/');
       });
     })
   );

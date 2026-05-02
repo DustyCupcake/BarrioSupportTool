@@ -10,7 +10,7 @@ function handle_qr_sheet(): void {
     $params  = $type_id ? [$type_id] : [];
 
     $stmt = db()->prepare(
-        "SELECT i.qr_code, i.item_number,
+        "SELECT i.qr_code, i.item_number, t.secure_qr,
                 t.name AS type_name,
                 CONCAT(t.name, ' #', i.item_number) AS display_name
          FROM equipment_items i
@@ -52,11 +52,28 @@ function handle_qr_sheet(): void {
             $src = 'https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=' . urlencode($item['qr_code']);
         }
 
-        $cards .= '<div class="card">'
-            . '<img src="' . $src . '" alt="QR ' . $qr_value . '" width="160" height="160">'
-            . '<div class="label">' . $name_esc . '</div>'
-            . '<div class="code">' . $qr_value . '</div>'
-            . '</div>' . "\n";
+        $img = '<img src="' . $src . '" alt="QR ' . $qr_value . '" width="160" height="160">';
+
+        if ($item['secure_qr']) {
+            // Split voucher: two identical halves with a tear line between them
+            $cards .= '<div class="card card-split">'
+                . '<div class="card-half">' . $img
+                . '<div class="label">' . $name_esc . '</div>'
+                . '<div class="code">' . $qr_value . '</div>'
+                . '</div>'
+                . '<div class="split-line">✂</div>'
+                . '<div class="card-half">' . $img
+                . '<div class="label">' . $name_esc . '</div>'
+                . '<div class="code">' . $qr_value . '</div>'
+                . '</div>'
+                . '</div>' . "\n";
+        } else {
+            $cards .= '<div class="card">'
+                . $img
+                . '<div class="label">' . $name_esc . '</div>'
+                . '<div class="code">' . $qr_value . '</div>'
+                . '</div>' . "\n";
+        }
     }
 
     echo '<!DOCTYPE html>
@@ -115,6 +132,30 @@ body { font-family: Arial, sans-serif; background: #fff; }
     color: #555;
     font-family: monospace;
     margin-top: .1cm;
+}
+
+.card-split {
+    padding: 0;
+}
+.card-half {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: .3cm .5cm;
+}
+.split-line {
+    display: flex;
+    align-items: center;
+    gap: .2cm;
+    padding: 0 .3cm;
+    color: #bbb;
+    font-size: 9pt;
+}
+.split-line::before,
+.split-line::after {
+    content: '';
+    flex: 1;
+    border-top: 1.5px dashed #bbb;
 }
 
 @media print {

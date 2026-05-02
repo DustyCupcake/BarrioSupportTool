@@ -88,7 +88,7 @@ async function handleScan(qr, container, strictMode) {
       return;
     }
 
-    if (item.status === 'checked-out') {
+    if (item.status === 'activated') {
       const doUse = async () => {
         scanOverlay.hide();
         await confirmUsed(qr, container, strictMode);
@@ -115,11 +115,21 @@ async function handleScan(qr, container, strictMode) {
       return;
     }
 
+    if (item.status === 'checked-out') {
+      scanOverlay.show({
+        state: 'error',
+        title: 'Not activated',
+        subtitle: 'Half-voucher not yet collected — barrio must register first',
+        buttons: [{ label: 'OK', action: doReset }],
+      });
+      return;
+    }
+
     // available or retired — not valid for validation
     scanOverlay.show({
       state: 'error',
       title: 'Invalid voucher',
-      subtitle: item.status === 'available' ? 'Not currently checked out' : 'Voucher retired',
+      subtitle: item.status === 'available' ? 'Not checked out to any barrio' : 'Voucher retired',
       buttons: [{ label: 'OK', action: doReset }],
     });
 

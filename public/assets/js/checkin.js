@@ -6,11 +6,12 @@ import { get, post } from './api.js?v=1.0.1';
 import { Scanner } from './scanner.js?v=1.0.0';
 import { toast } from './app.js?v=1.0.1';
 import { scanOverlay } from './scan-overlay.js?v=1.0.0';
-import { init as initValidate, destroy as destroyValidate } from './validate.js?v=1.0.0';
+import { init as initValidate, destroy as destroyValidate } from './validate.js?v=1.0.1';
+import { init as initActivate, destroy as destroyActivate } from './activate.js?v=1.0.0';
 
 let scanner      = null;
 let lastItem     = null;
-let validateMode = false;
+let mode         = 'return'; // 'return' | 'validate' | 'activate'
 
 export function init(container) {
   render(container);
@@ -19,36 +20,43 @@ export function init(container) {
 export function destroy() {
   if (scanner) { scanner.stop(); scanner = null; }
   destroyValidate();
+  destroyActivate();
 }
 
 function render(container) {
   lastItem = null;
 
-  if (validateMode) {
-    container.innerHTML = `
-      <div class="mode-toggle-wrap">
-        <div class="mode-toggle">
-          <button onclick="window._ci.setMode(false)">Return equipment</button>
-          <button class="active" onclick="window._ci.setMode(true)">Validate voucher</button>
-        </div>
+  const toggleHTML = `
+    <div class="mode-toggle-wrap">
+      <div class="mode-toggle">
+        <button ${mode === 'return'   ? 'class="active"' : ''} onclick="window._ci.setMode('return')">Return equipment</button>
+        <button ${mode === 'validate' ? 'class="active"' : ''} onclick="window._ci.setMode('validate')">Validate voucher</button>
+        <button ${mode === 'activate' ? 'class="active"' : ''} onclick="window._ci.setMode('activate')">Activate vouchers</button>
       </div>
-    `;
-    window._ci = { setMode: (v) => setMode(v, container) };
+    </div>
+  `;
+
+  window._ci = { setMode: (v) => setMode(v, container) };
+
+  if (mode === 'validate') {
+    container.innerHTML = toggleHTML;
     const inner = document.createElement('div');
     container.appendChild(inner);
     initValidate(inner, false);
     return;
   }
 
+  if (mode === 'activate') {
+    container.innerHTML = toggleHTML;
+    const inner = document.createElement('div');
+    container.appendChild(inner);
+    initActivate(inner);
+    return;
+  }
+
   if (scanner) { scanner.stop(); scanner = null; }
 
-  container.innerHTML = `
-    <div class="mode-toggle-wrap">
-      <div class="mode-toggle">
-        <button class="active" onclick="window._ci.setMode(false)">Return equipment</button>
-        <button onclick="window._ci.setMode(true)">Validate voucher</button>
-      </div>
-    </div>
+  container.innerHTML = toggleHTML + `
     <div class="card">
       <div class="card-label">Scan item to return</div>
       <div class="video-wrap" id="ci-video-wrap">
@@ -59,13 +67,13 @@ function render(container) {
     </div>
   `;
 
-  window._ci = { setMode: (v) => setMode(v, container) };
   startScanner(container);
 }
 
 function setMode(v, container) {
-  validateMode = v;
+  mode = v;
   destroyValidate();
+  destroyActivate();
   if (scanner) { scanner.stop(); scanner = null; }
   render(container);
 }
@@ -91,8 +99,24 @@ async function handleScan(qr, container) {
     render(container);
   };
 
+  const doConfirmReturn = async () => {
+    scanOverlay.hide();
+    await confirmCheckin(qr, container);
+  };
+
   try {
-    const item = await get('/items/lookup', { qr });
+    let item;
+
+    if (!navigator.onLine) {
+      const cached = localStorage.getItem('barrio_item:' + qr);
+      if (cached) item = JSON.parse(cached);
+    }
+
+    if (!item) {
+      item = await get('/items/lookup', { qr });
+      try { localStorage.setItem('barrio_item:' + qr, JSON.stringify(item)); } catch {}
+    }
+
     lastItem = item;
 
     if (item.status === 'available') {
@@ -105,17 +129,12 @@ async function handleScan(qr, container) {
         ],
       });
     } else {
-      const doConfirm = async () => {
-        scanOverlay.hide();
-        await confirmCheckin(qr, container);
-      };
-
       scanOverlay.show({
         state: 'success',
         title: item.name,
         subtitle: item.current_barrio?.name ? `Checked out to ${item.current_barrio.name}` : item.category ?? null,
         buttons: [
-          { label: 'Confirm Return', action: doConfirm },
+          { label: 'Confirm Return', action: doConfirmReturn },
           { label: 'Undo', action: doReset },
         ],
       });
@@ -128,6 +147,19 @@ async function handleScan(qr, container) {
         onCancel: doReset,
       });
     };
+
+    if (!e.status && !navigator.onLine) {
+      scanOverlay.show({
+        state: 'warning',
+        title: 'Offline',
+        subtitle: 'Item info unavailable — queue return?',
+        buttons: [
+          { label: 'Return Anyway', action: doConfirmReturn },
+          { label: 'Cancel', action: doReset },
+        ],
+      });
+      return;
+    }
 
     scanOverlay.show({
       state: 'error',

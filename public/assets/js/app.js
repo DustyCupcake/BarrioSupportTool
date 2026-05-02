@@ -6,11 +6,15 @@
 import { get, setCsrf } from './api.js?v=1.0.1';
 import { initOfflineSync } from './offline.js?v=1.0.0';
 import { init as initCheckout } from './checkout.js?v=1.0.1';
-import { init as initCheckin, destroy as destroyCheckin } from './checkin.js?v=1.0.1';
+import { init as initCheckin, destroy as destroyCheckin } from './checkin.js?v=1.0.2';
 import { init as initBarrios, destroy as destroyBarrios } from './barrios.js?v=1.0.1';
 import { init as initInventory } from './inventory.js?v=1.0.0';
 import { init as initHistory } from './history.js?v=1.0.0';
-import { init as initValidate, destroy as destroyValidate } from './validate.js?v=1.0.0';
+import { init as initValidate, destroy as destroyValidate } from './validate.js?v=1.0.1';
+
+if ('serviceWorker' in navigator) {
+  navigator.serviceWorker.register('/sw.js?v=1.0.0').catch(() => {});
+}
 
 let currentTab     = null;
 let toastTimer     = null;
@@ -30,9 +34,18 @@ async function boot() {
   try {
     user = await get('/auth/me');
     setCsrf(user.csrf_token);
+    try { localStorage.setItem('barrio_user', JSON.stringify(user)); } catch {}
   } catch {
-    window.location.href = '/login.html?next=' + encodeURIComponent(location.pathname + location.search);
-    return;
+    if (!navigator.onLine) {
+      try {
+        const cached = localStorage.getItem('barrio_user');
+        if (cached) user = JSON.parse(cached);
+      } catch {}
+    }
+    if (!user) {
+      window.location.href = '/login.html?next=' + encodeURIComponent(location.pathname + location.search);
+      return;
+    }
   }
 
   // Show user info in header
@@ -50,11 +63,6 @@ async function boot() {
 
   // Init offline sync
   initOfflineSync(toast);
-
-  // Register service worker
-  if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('/sw.js?v=1.0.0').catch(() => {});
-  }
 
   // Tab routing
   const tabs = document.querySelectorAll('nav button[data-tab]');
