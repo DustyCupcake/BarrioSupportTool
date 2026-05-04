@@ -6,8 +6,15 @@ declare(strict_types=1);
 
 function start_session(): void {
     if (session_status() === PHP_SESSION_NONE) {
+        $lifetime = 3600 * 24 * 3; // 3 days
+        ini_set('session.gc_maxlifetime', (string) $lifetime);
+        $sessionPath = dirname(__DIR__, 2) . '/sessions';
+        if (!is_dir($sessionPath)) {
+            mkdir($sessionPath, 0700, true);
+        }
+        session_save_path($sessionPath);
         session_set_cookie_params([
-            'lifetime' => 3600 * 24 * 3, // 3 days
+            'lifetime' => $lifetime,
             'path'     => '/',
             'secure'   => isset($_SERVER['HTTPS']),
             'httponly' => true,

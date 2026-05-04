@@ -150,10 +150,11 @@ body { font-family: Arial, sans-serif; background: #fff; }
     padding: 0 .3cm;
     color: #bbb;
     font-size: 9pt;
+    width: 100%;
 }
 .split-line::before,
 .split-line::after {
-    content: '';
+    content: \'\';
     flex: 1;
     border-top: 1.5px dashed #bbb;
 }
