@@ -126,6 +126,7 @@ function renderResult(qr, data) {
     cube_label, entity_name, fill_state,
     last_filled_at, last_sanitized_at,
     fill_requested, fills_remaining, credits_remaining,
+    latitude, longitude, location_source,
   } = data;
 
   let statusClass, icon, title, body;
@@ -164,12 +165,30 @@ function renderResult(qr, data) {
   const noCreditWarning  = canRequestFills() && !fill_requested && credits_remaining <= 0;
   const showIdentifyBtn  = !canRequestFills() && !fill_requested && !!entity_name;
 
+  let locationHtml = '';
+  if (latitude != null && longitude != null) {
+    const label = location_source === 'cube'
+      ? 'Custom location set for this cube'
+      : `Using ${escHtml(entity_name)}'s default location`;
+    locationHtml = `
+      <div class="cb-meta">
+        <a href="https://maps.google.com/?q=${latitude},${longitude}" target="_blank" rel="noopener" style="color:inherit;text-decoration:underline">📍 ${label}</a>
+      </div>`;
+  }
+
+  const canSetLocation = userPerms.includes('update_item_location') || (canRequestFills() && !!entity_name);
+  const locationBtnHtml = canSetLocation ? `
+    <button class="btn secondary" id="cb-loc-btn">📍 Use my current location for this cube</button>
+    <div class="cb-credits-info" id="cb-loc-msg"></div>
+  ` : '';
+
   wrap.innerHTML = `
     <div class="cb-result ${escAttr(statusClass)}">
       <div class="cb-result-icon">${icon}</div>
       <div class="cb-result-title">${escHtml(title)}</div>
       <div class="cb-result-body">${body}</div>
       ${metaItems.length ? `<div class="cb-meta">${metaItems.join('')}</div>` : ''}
+      ${locationHtml}
       ${showRequestBtn ? `
         <button class="btn cb-request-btn" id="cb-request-btn">Request a fill</button>
         <div class="cb-credits-info">${credits_remaining} fill credit${credits_remaining !== 1 ? 's' : ''} remaining</div>
@@ -189,6 +208,7 @@ function renderResult(qr, data) {
           ${fills_remaining !== null ? `${fills_remaining} fill${fills_remaining !== 1 ? 's' : ''} still pending` : ''}
         </div>
       ` : ''}
+      ${locationBtnHtml}
     </div>
     <button class="btn secondary" id="cb-scan-again">Scan another cube</button>
   `;
@@ -204,6 +224,63 @@ function renderResult(qr, data) {
   if (idBtn) {
     idBtn.onclick = () => renderIdentifyScanner(qr, data);
   }
+
+  const locBtn = document.getElementById('cb-loc-btn');
+  if (locBtn) {
+    locBtn.onclick = () => captureLocation(qr, locBtn);
+  }
+}
+
+// ─── Cube location ──────────────────────────────────────────────────────────
+
+function captureLocation(qr, btn) {
+  const msgEl = document.getElementById('cb-loc-msg');
+  if (!navigator.geolocation) {
+    if (msgEl) msgEl.textContent = 'Geolocation not supported on this device';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Locating…';
+  if (msgEl) msgEl.textContent = '';
+
+  navigator.geolocation.getCurrentPosition(
+    async (pos) => {
+      btn.textContent = 'Saving…';
+      try {
+        const res = await fetch('/api/items/location', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrfToken || '' },
+          body: JSON.stringify({
+            qr,
+            latitude: pos.coords.latitude,
+            longitude: pos.coords.longitude,
+          }),
+        });
+        const data = await res.json();
+
+        if (res.ok && data.success) {
+          const upd = await fetch(`/api/water/cube-status?qr=${encodeURIComponent(qr)}`);
+          renderResult(qr, await upd.json());
+        } else {
+          btn.disabled = false;
+          btn.textContent = '📍 Use my current location for this cube';
+          if (msgEl) msgEl.textContent = data.error || 'Could not save location — try again.';
+        }
+      } catch {
+        btn.disabled = false;
+        btn.textContent = '📍 Use my current location for this cube';
+        if (msgEl) msgEl.textContent = 'Save failed — check connection.';
+      }
+    },
+    () => {
+      btn.disabled = false;
+      btn.textContent = '📍 Use my current location for this cube';
+      if (msgEl) msgEl.textContent = 'Location unavailable — check browser permissions.';
+    },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
 }
 
 // ─── Barrio self-identify ───────────────────────────────────────────────────

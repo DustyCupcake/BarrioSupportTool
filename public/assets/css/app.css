@@ -370,6 +370,7 @@ main { padding: 1.25rem; max-width: 520px; margin: 0 auto; }
 .sof-success { background: #1e6e3a; }
 .sof-warning { background: #ca8a04; }
 .sof-error   { background: #b83030; }
+.sof-info    { background: #2563a8; }
 .sof-manual  { background: rgba(0,0,0,.72); justify-content: center; padding: 1.5rem; }
 
 .sof-body {
