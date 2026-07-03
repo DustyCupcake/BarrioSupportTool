@@ -298,6 +298,21 @@ async function deleteType(id) {
 
 // ─── Items ────────────────────────────────────────────────────────────────
 
+// Flags when an item's require_home_location/require_any_location overrides
+// its type's setting — otherwise the type-level checkbox silently has no
+// effect on that item.
+function _returnRuleBadge(it) {
+  const homeSet = it.require_home_location !== null;
+  const anySet   = it.require_any_location  !== null;
+  if (!homeSet && !anySet) {
+    return '<span style="color:var(--text3)">Inherits from type</span>';
+  }
+  const parts = [];
+  if (homeSet) parts.push(`must return home: ${it.require_home_location ? 'yes' : 'no'}`);
+  if (anySet)  parts.push(`must scan a location: ${it.require_any_location ? 'yes' : 'no'}`);
+  return `<span class="badge admin" title="${esc(parts.join(', '))} — set on this item, not its type">⚠ Override</span>`;
+}
+
 async function loadItems(type_id = '') {
   try {
     const data = await get('/admin/items', type_id ? { type_id } : {});
@@ -364,7 +379,7 @@ async function renderItemsTable(filter_type_id = '') {
       <thead>
         <tr>
           <th style="width:32px"><input type="checkbox" id="eq-sel-all" title="Select all" onchange="window._eq.toggleSelectAll(this.checked)"></th>
-          <th>Item</th><th>QR code</th><th>Status</th><th>Home location</th><th>GPS</th><th></th>
+          <th>Item</th><th>QR code</th><th>Status</th><th>Home location</th><th>Return rule</th><th>GPS</th><th></th>
         </tr>
       </thead>
       <tbody>
@@ -373,6 +388,7 @@ async function renderItemsTable(filter_type_id = '') {
           const homeLoc = it.home_location_name
             ? `<span title="Per-item override">📍 ${esc(it.home_location_name)}</span>`
             : '<span style="color:var(--text3)">—</span>';
+          const returnRule = _returnRuleBadge(it);
           const hasGps = it.latitude != null;
           return `
           <tr id="item-row-${it.id}">
@@ -385,6 +401,7 @@ async function renderItemsTable(filter_type_id = '') {
             <td style="font-family:monospace;font-size:12px">${esc(it.qr_code)}</td>
             <td><span class="badge ${it.status}">${it.status}</span></td>
             <td style="font-size:12px">${homeLoc}</td>
+            <td style="font-size:12px">${returnRule}</td>
             <td style="font-size:12px;color:var(--text3)">${hasGps ? '✓' : '—'}</td>
             <td>
               <div class="table-actions">

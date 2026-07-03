@@ -1,6 +1,6 @@
 /**
  * Full-screen confirmation overlay shown after each QR scan result.
- * Usage: import { scanOverlay } from './scan-overlay.js?v=1.0.0'
+ * Usage: import { scanOverlay } from './scan-overlay.js?v=1.0.1'
  */
 
 class ScanOverlay {
@@ -21,7 +21,7 @@ class ScanOverlay {
     document.body.appendChild(this._el);
   }
 
-  // state: 'success' | 'warning' | 'error'
+  // state: 'success' | 'warning' | 'error' | 'info'
   // buttons: [{ label, action }] — first is primary, last is ghost/undo
   show({ state, title, subtitle, buttons }) {
     this._mount();
