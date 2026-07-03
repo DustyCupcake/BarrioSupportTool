@@ -742,6 +742,10 @@ function goStep3() {
       <button class="btn btn-sm btn-outline" id="co-loc-btn">📍 Capture location</button>
       <span id="co-loc-status" style="font-size:13px;color:var(--text3)">Optional</span>
     </div>` : ''}
+    ${mode === 'sub_barrio' ? `<div id="co-barrio-loc-row" style="display:flex;align-items:center;gap:8px;margin-bottom:.75rem">
+      <input type="checkbox" id="co-apply-barrio-loc" checked style="width:auto;margin:0;accent-color:var(--accent)">
+      <label for="co-apply-barrio-loc" style="font-size:13px;color:var(--text2)">Set item location from ${_esc(selectedEntity.name)}'s storage location (used if no GPS captured above)</label>
+    </div>` : ''}
     <button class="btn primary" id="co-confirm" onclick="window._co.confirm()">${__('reviewLend')}</button>
     <button class="btn ghost" onclick="window._co.back()">${_c('back')}</button>
   `;
@@ -808,8 +812,12 @@ async function finalise() {
       // sub_barrio or sub_artist
       const deptId = (user?.dept_ids || [])[0] ?? null;
       const payload = { dept_id: deptId, item_qrs: itemQrs, dept_label: label, force: true };
-      if (mode === 'sub_barrio') payload.barrio_id = selectedEntity.id;
-      else                       payload.artist_id = selectedEntity.id;
+      if (mode === 'sub_barrio') {
+        payload.barrio_id = selectedEntity.id;
+        payload.apply_barrio_location = document.getElementById('co-apply-barrio-loc')?.checked ?? true;
+      } else {
+        payload.artist_id = selectedEntity.id;
+      }
       if (capturedLocation) {
         payload.latitude  = capturedLocation.latitude;
         payload.longitude = capturedLocation.longitude;
@@ -826,6 +834,7 @@ async function finalise() {
 
     const failed = result.results?.filter(r => !r.success) ?? [];
     if (failed.length) toast(`${failed.length} item(s) failed to lend`);
+    else if (result.barrio_location_note) toast(result.barrio_location_note);
     else toast(__('success').replace('[N]', scannedItems.length).replace('[BARRIO]', selectedEntity.name));
 
     // Record barrio arrival if applicable

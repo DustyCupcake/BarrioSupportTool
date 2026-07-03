@@ -4,7 +4,7 @@
  */
 
 import { get, setCsrf }          from '../api.js?v=1.0.1';
-import { initBarrios }           from './barrios.js?v=1.0.1';
+import { initBarrios }           from './barrios.js?v=1.1.0';
 import { initArtists }           from './artists.js?v=1.0.0';
 import { initEquipment }         from './equipment.js?v=1.0.3';
 import { initUsers }             from './users.js?v=1.1.0';
@@ -12,9 +12,9 @@ import { initTeams }             from './teams.js?v=1.1.0';
 import { initShifts }            from './shifts.js?v=1.0.1';
 import { initConsumables }       from './consumables.js?v=1.0.0';
 import { initOrders }            from './orders.js?v=1.0.0';
-import { initStorageLocations }  from './storage_locations.js?v=1.0.0';
+import { initStorageLocations }  from './storage_locations.js?v=1.1.0';
 import { initPersonTokens }      from './person_tokens.js?v=1.0.0';
-import { initFillRoute }         from './fill_route.js?v=1.1.0';
+import { initFillRoute }         from './fill_route.js?v=1.2.0';
 import { initPrintTemplates }   from './print_templates.js?v=1.0.4';
 import { initReset }            from './reset.js?v=1.0.0';
 

@@ -828,6 +828,71 @@ function handle_admin_save_fill_route(): void {
     json_ok(['success' => true, 'saved' => count($ordered)]);
 }
 
+// ─── POST /admin/fill-route/apply-barrio-locations ───────────────────────────
+// Admin: backfill GPS coordinates on water cubes that are already checked out
+// to a barrio but have no coordinates yet, using that barrio's storage location
+// (only when the barrio has exactly one — same rule the checkout flow uses).
+// Never overwrites a cube that already has coordinates.
+function handle_admin_apply_barrio_locations(): void {
+    require_method('POST');
+    require_auth();
+    if (!has_permission('manage_barrios') && !has_permission('manage_equipment')) {
+        json_error('Forbidden', 403);
+    }
+    verify_csrf();
+
+    $pdo = db();
+
+    $stmt = $pdo->prepare(
+        "SELECT i.id, i.current_barrio_id
+         FROM equipment_items i
+         JOIN equipment_types t ON t.id = i.equipment_type_id AND t.category = 'water_cube'
+         WHERE i.current_barrio_id IS NOT NULL AND i.latitude IS NULL"
+    );
+    $stmt->execute();
+    $cubes = $stmt->fetchAll();
+
+    $applied           = 0;
+    $skipped_no_loc     = 0;
+    $skipped_ambiguous  = 0;
+    $barrio_loc_cache   = []; // barrio_id -> ['lat'=>, 'lng'=>] | 'none' | 'ambiguous'
+
+    foreach ($cubes as $cube) {
+        $barrio_id = (int)$cube['current_barrio_id'];
+
+        if (!array_key_exists($barrio_id, $barrio_loc_cache)) {
+            $lstmt = $pdo->prepare(
+                'SELECT latitude, longitude FROM storage_locations
+                 WHERE barrio_id = ? AND latitude IS NOT NULL AND longitude IS NOT NULL'
+            );
+            $lstmt->execute([$barrio_id]);
+            $locs = $lstmt->fetchAll();
+            if (count($locs) === 1) {
+                $barrio_loc_cache[$barrio_id] = ['lat' => (float)$locs[0]['latitude'], 'lng' => (float)$locs[0]['longitude']];
+            } elseif (count($locs) === 0) {
+                $barrio_loc_cache[$barrio_id] = 'none';
+            } else {
+                $barrio_loc_cache[$barrio_id] = 'ambiguous';
+            }
+        }
+
+        $loc = $barrio_loc_cache[$barrio_id];
+        if ($loc === 'none') { $skipped_no_loc++; continue; }
+        if ($loc === 'ambiguous') { $skipped_ambiguous++; continue; }
+
+        $pdo->prepare('UPDATE equipment_items SET latitude = ?, longitude = ? WHERE id = ?')
+            ->execute([$loc['lat'], $loc['lng'], $cube['id']]);
+        $applied++;
+    }
+
+    json_ok([
+        'applied'          => $applied,
+        'skipped_no_location'    => $skipped_no_loc,
+        'skipped_ambiguous'      => $skipped_ambiguous,
+        'candidates'       => count($cubes),
+    ]);
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 function _get_fill_credits(\PDO $pdo, int $barrio_id): array {

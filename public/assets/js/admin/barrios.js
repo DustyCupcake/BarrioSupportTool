@@ -98,6 +98,14 @@ function render(container) {
       </div>
     </div>
 
+    <div class="form-card" id="locations-form" style="display:none">
+      <h2>Storage locations for <span id="locations-barrio-name"></span></h2>
+      <div id="locations-list"></div>
+      <div class="form-actions">
+        <button class="btn sm" onclick="window._barrios.closeLocations()">Close</button>
+      </div>
+    </div>
+
     <div class="form-card" id="orders-form" style="display:none">
       <h2>Orders for <span id="orders-barrio-name"></span></h2>
       <input type="hidden" id="orders-barrio-id">
@@ -129,6 +137,7 @@ function render(container) {
     openImport, closeImport, runImport,
     openImportLocations, closeImportLocations, runImportLocations,
     openOrders, closeOrders, saveOrders,
+    openLocations, closeLocations,
   };
 }
 
@@ -167,6 +176,7 @@ function renderTable(wrap) {
               <div class="table-actions">
                 <button class="action-btn" onclick="window.open('/api/admin/barrio-qr?id=${b.id}','_blank')">QR</button>
                 <button class="action-btn" onclick="window._barrios.openOrders(${b.id})">Orders</button>
+                <button class="action-btn" onclick="window._barrios.openLocations(${b.id})">Locations</button>
                 <button class="action-btn" onclick="window._barrios.openEdit(${b.id})">Edit</button>
                 <button class="action-btn danger" onclick="window._barrios.remove(${b.id})">Delete</button>
               </div>
@@ -181,7 +191,7 @@ function renderTable(wrap) {
 // ─── Barrio add/edit form ─────────────────────────────────────────────────────
 
 function openAdd() {
-  closeOrders(); closeImport(); closeImportLocations();
+  closeOrders(); closeImport(); closeImportLocations(); closeLocations();
   document.getElementById('barrio-form-title').textContent = 'Add barrio';
   document.getElementById('barrio-id').value   = '';
   document.getElementById('barrio-name').value = '';
@@ -192,7 +202,7 @@ function openAdd() {
 }
 
 function openEdit(id) {
-  closeOrders(); closeImport();
+  closeOrders(); closeImport(); closeImportLocations(); closeLocations();
   const b = _barrios.find(x => x.id === id);
   if (!b) return;
   document.getElementById('barrio-form-title').textContent = 'Edit barrio';
@@ -244,10 +254,48 @@ async function removeBarrio(id) {
   }
 }
 
+// ─── Storage locations (read-only view) ────────────────────────────────────────
+
+async function openLocations(id) {
+  closeForm(); closeImport(); closeImportLocations(); closeOrders();
+  const b = _barrios.find(x => x.id === id);
+  if (!b) return;
+
+  document.getElementById('locations-barrio-name').textContent = esc(b.name);
+  const list = document.getElementById('locations-list');
+  list.innerHTML = '<div class="empty"><span class="spinner"></span></div>';
+  document.getElementById('locations-form').style.display = '';
+  document.getElementById('locations-form').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  try {
+    const data = await get('/admin/storage-locations');
+    const locs = (data.locations || []).filter(l => l.barrio_id === id);
+    if (!locs.length) {
+      list.innerHTML = `<div style="color:var(--text3);font-size:13px">
+        No storage locations linked to this barrio yet. Add one under
+        Storage Locations, or use "Import locations" above.</div>`;
+      return;
+    }
+    list.innerHTML = locs.map(l => `
+      <div class="field" style="display:flex;align-items:center;justify-content:space-between;gap:.75rem;margin-bottom:.4rem">
+        <span>${esc(l.name)}</span>
+        <span style="font-size:12px;color:var(--text3)">${l.latitude != null
+          ? `<a href="https://maps.apple.com/?ll=${l.latitude},${l.longitude}" target="_blank">${l.latitude}, ${l.longitude}</a>`
+          : 'no coordinates'}</span>
+      </div>`).join('');
+  } catch (e) {
+    list.innerHTML = `<div class="empty">Failed to load: ${e.message}</div>`;
+  }
+}
+
+function closeLocations() {
+  document.getElementById('locations-form').style.display = 'none';
+}
+
 // ─── Orders form ──────────────────────────────────────────────────────────────
 
 async function openOrders(id) {
-  closeForm(); closeImport(); closeImportLocations();
+  closeForm(); closeImport(); closeImportLocations(); closeLocations();
   const b = _barrios.find(x => x.id === id);
   if (!b) return;
 
@@ -347,7 +395,7 @@ async function saveOrders() {
 // ─── CSV import ───────────────────────────────────────────────────────────────
 
 function openImport() {
-  closeForm(); closeOrders(); closeImportLocations();
+  closeForm(); closeOrders(); closeImportLocations(); closeLocations();
   document.getElementById('import-file').value = '';
   document.getElementById('import-form').style.display = '';
 }
@@ -390,7 +438,7 @@ async function runImport() {
 // ─── Barrio locations CSV import ──────────────────────────────────────────────
 
 function openImportLocations() {
-  closeForm(); closeImport(); closeOrders();
+  closeForm(); closeImport(); closeOrders(); closeLocations();
   document.getElementById('import-locations-file').value = '';
   document.getElementById('import-locations-result').textContent = '';
   document.getElementById('import-locations-form').style.display = '';

@@ -210,6 +210,7 @@ $routes = [
     ['POST', '/admin/sell-fill-credits', 'routes/fill_requests.php', 'handle_sell_fill_credits'],
     ['GET',  '/admin/fill-route/cubes',  'routes/fill_requests.php', 'handle_admin_fill_route_cubes'],
     ['PUT',  '/admin/fill-route/order',  'routes/fill_requests.php', 'handle_admin_save_fill_route'],
+    ['POST', '/admin/fill-route/apply-barrio-locations', 'routes/fill_requests.php', 'handle_admin_apply_barrio_locations'],
 
     // Admin — storage locations
     ['GET',    '/admin/storage-locations',          'routes/admin/storage_locations.php', 'handle_list_locations'],
