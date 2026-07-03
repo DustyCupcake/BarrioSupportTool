@@ -14,7 +14,7 @@
 import { get, post } from './api.js?v=1.0.1';
 import { Scanner } from './scanner.js?v=1.0.0';
 import { toast, switchTab, getCurrentUser } from './app.js?v=1.0.1';
-import { scanOverlay } from './scan-overlay.js?v=1.0.0';
+import { scanOverlay } from './scan-overlay.js?v=1.0.1';
 import { t } from './i18n.js?v=1.0.1';
 
 const __ = (key) => t('checkout', key);

@@ -5,7 +5,7 @@
 import { get, post, put } from './api.js?v=1.0.1';
 import { Scanner, scanFeedbackSuccess, scanFeedbackError } from './scanner.js?v=1.0.1';
 import { toast, getCurrentUser } from './app.js?v=1.0.1';
-import { scanOverlay } from './scan-overlay.js?v=1.0.0';
+import { scanOverlay } from './scan-overlay.js?v=1.0.1';
 import { init as initValidate, destroy as destroyValidate } from './validate.js?v=1.0.1';
 import { init as initActivate, destroy as destroyActivate } from './activate.js?v=1.0.0';
 import { t } from './i18n.js?v=1.0.0';
