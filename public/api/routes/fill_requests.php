@@ -794,6 +794,45 @@ function handle_release_direction(): void {
     json_ok(['success' => true]);
 }
 
+// ─── GET /admin/fill-requests ─────────────────────────────────────────────────
+// Admin: list all currently pending/partial fill requests across all barrios.
+function handle_admin_list_fill_requests(): void {
+    require_method('GET');
+    require_auth();
+    if (!has_permission('manage_barrios')) {
+        json_error('Forbidden', 403);
+    }
+
+    $stmt = db()->prepare(
+        "SELECT fr.id, fr.entity_id, b.name AS barrio_name,
+                fr.cube_item_id,
+                CASE WHEN fr.cube_item_id IS NOT NULL
+                     THEN CONCAT(t.name, ' #', i.item_number) ELSE NULL END AS cube_label,
+                fr.fills_requested, fr.fills_completed, fr.status,
+                fr.requested_at, u.display_name AS requested_by_name
+         FROM fill_requests fr
+         JOIN barrios b        ON b.id = fr.entity_id
+         LEFT JOIN equipment_items i ON i.id = fr.cube_item_id
+         LEFT JOIN equipment_types t ON t.id = i.equipment_type_id
+         LEFT JOIN users u           ON u.id = fr.requested_by
+         WHERE fr.status IN ('pending', 'partial')
+         ORDER BY fr.requested_at ASC"
+    );
+    $stmt->execute();
+    $rows = $stmt->fetchAll();
+
+    foreach ($rows as &$r) {
+        $r['id']              = (int)$r['id'];
+        $r['entity_id']       = (int)$r['entity_id'];
+        $r['cube_item_id']    = $r['cube_item_id'] !== null ? (int)$r['cube_item_id'] : null;
+        $r['fills_requested'] = (int)$r['fills_requested'];
+        $r['fills_completed'] = (int)$r['fills_completed'];
+    }
+    unset($r);
+
+    json_ok(['requests' => $rows]);
+}
+
 // ─── GET /admin/fill-route/cubes ─────────────────────────────────────────────
 // Admin: list all water cube items for route ordering.
 function handle_admin_fill_route_cubes(): void {

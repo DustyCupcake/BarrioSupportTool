@@ -209,6 +209,7 @@ $routes = [
 
     // Admin — fill credits & route ordering
     ['POST', '/admin/sell-fill-credits', 'routes/fill_requests.php', 'handle_sell_fill_credits'],
+    ['GET',  '/admin/fill-requests',     'routes/fill_requests.php', 'handle_admin_list_fill_requests'],
     ['GET',  '/admin/fill-route/cubes',  'routes/fill_requests.php', 'handle_admin_fill_route_cubes'],
     ['PUT',  '/admin/fill-route/order',  'routes/fill_requests.php', 'handle_admin_save_fill_route'],
     ['POST', '/admin/fill-route/apply-barrio-locations', 'routes/fill_requests.php', 'handle_admin_apply_barrio_locations'],
