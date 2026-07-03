@@ -192,6 +192,7 @@ $routes = [
     ['GET',    '/admin/items',                   'routes/admin/equipment.php',   'handle_list_items'],
     ['POST',   '/admin/items',                   'routes/admin/equipment.php',   'handle_create_items'],
     ['POST',   '/admin/items/bulk-update',       'routes/admin/equipment.php',   'handle_bulk_update_items'],
+    ['POST',   '/admin/items/import-status-csv', 'routes/admin/equipment.php',   'handle_import_status_csv'],
     ['PUT',    '/admin/items',                   'routes/admin/equipment.php',   'handle_update_item'],
     ['DELETE', '/admin/items',                   'routes/admin/equipment.php',   'handle_delete_item'],
     ['GET',    '/admin/items/qr-sheet',          'routes/admin/qr_sheet.php',    'handle_qr_sheet'],
