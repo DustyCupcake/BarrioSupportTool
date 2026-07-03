@@ -1,6 +1,6 @@
 /**
  * Admin: Fill Route section.
- * Drag-and-drop ordering of water cube stops and credit management.
+ * Ordering of water cube stops via drag-and-drop list or click-to-order map, plus credit management.
  */
 
 import { get, put } from '../api.js?v=1.0.1';
@@ -10,11 +10,18 @@ let _onRoute  = [];   // cubes with route_position, sorted
 let _offRoute = [];   // cubes with no route_position
 let _dirty    = false;
 
+let _viewMode      = 'list'; // 'list' | 'map'
+let _anchorId      = null;   // id of the last-clicked cube on the map, or null
+let _map           = null;
+let _mapMarkers    = new Map(); // cube id → L.Marker
+let _mapBoundsSet  = false;
+
 export async function initFillRoute(container, toast) {
   _toast = toast;
   renderShell(container);
   await load();
   renderLists();
+  setDirty(false);
 }
 
 // ── Shell ─────────────────────────────────────────────────────────────────────
@@ -24,9 +31,13 @@ function renderShell(container) {
     <div class="page-header">
       <div>
         <div class="page-title">Fill Route</div>
-        <div class="page-subtitle">Drag cubes to set the circular route order. The truck crew will see stops in this sequence.</div>
+        <div class="page-subtitle" id="fr-subtitle">Drag cubes to set the circular route order. The truck crew will see stops in this sequence.</div>
       </div>
       <div style="display:flex;gap:.5rem;align-items:center">
+        <div class="fr-view-toggle" role="tablist">
+          <button class="fr-view-btn active" data-view="list" onclick="window._fr.setView('list')">List</button>
+          <button class="fr-view-btn" data-view="map" onclick="window._fr.setView('map')">Map</button>
+        </div>
         <button class="btn primary sm" id="fr-save-btn" style="display:none" onclick="window._fr.save()">Save route</button>
         <button class="btn sm" onclick="window._fr.reload()">Refresh</button>
       </div>
@@ -34,7 +45,7 @@ function renderShell(container) {
 
     <div id="fr-status" style="margin-bottom:1rem"></div>
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;align-items:start">
+    <div id="fr-list-view" style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;align-items:start">
       <div>
         <div class="section-label" style="font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--text3);margin-bottom:.6rem">
           On route <span id="fr-on-count" style="color:var(--text2)"></span>
@@ -51,7 +62,48 @@ function renderShell(container) {
       </div>
     </div>
 
+    <div id="fr-map-view" style="display:none">
+      <div class="fr-map-hint">
+        Click a cube to select it, then click another cube to insert it right after — chain clicks to lay out the whole route.
+        Click the selected cube again (or the empty map) to deselect. Only cubes with GPS coordinates appear here.
+      </div>
+      <div id="fr-map" class="fr-map-container"></div>
+      <div id="fr-map-legend" class="fr-map-legend"></div>
+    </div>
+
     <style>
+      .fr-view-toggle {
+        display: flex;
+        border: 0.5px solid var(--border);
+        border-radius: var(--radius);
+        overflow: hidden;
+      }
+      .fr-view-btn {
+        border: none;
+        background: var(--surface);
+        color: var(--text2);
+        padding: .4rem .9rem;
+        font-size: 12px;
+        cursor: pointer;
+      }
+      .fr-view-btn.active { background: var(--accent); color: #fff; }
+      .fr-map-hint { font-size: 12px; color: var(--text2); margin-bottom: .6rem; max-width: 60rem; }
+      .fr-map-container {
+        height: 520px;
+        border-radius: var(--radius-lg);
+        border: 0.5px solid var(--border);
+        overflow: hidden;
+        position: relative;
+      }
+      .fr-map-no-coords {
+        position: absolute; inset: 0;
+        display: flex; align-items: center; justify-content: center;
+        text-align: center; font-size: 13px; color: var(--text2);
+        background: var(--surface); z-index: 500; padding: 1rem;
+      }
+      .fr-map-legend { display: flex; gap: 1rem; flex-wrap: wrap; font-size: 11px; color: var(--text3); margin-top: .6rem; }
+      .fr-map-legend span { display: inline-flex; align-items: center; gap: .35rem; }
+      .fr-map-legend i { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
       .fr-drop-zone {
         min-height: 80px;
         border: 1.5px dashed var(--border);
@@ -102,7 +154,28 @@ function renderShell(container) {
     </style>
   `;
 
-  window._fr = { save: saveRoute, reload: () => { load().then(renderLists); } };
+  window._fr = {
+    save:    saveRoute,
+    reload:  () => { _mapBoundsSet = false; load().then(() => { renderLists(); setDirty(false); }); },
+    setView,
+  };
+}
+
+// ── View mode ─────────────────────────────────────────────────────────────────
+
+function setView(mode) {
+  if (_viewMode === mode) return;
+  _viewMode = mode;
+  document.querySelectorAll('.fr-view-btn').forEach(b => b.classList.toggle('active', b.dataset.view === mode));
+  document.getElementById('fr-list-view').style.display = mode === 'list' ? '' : 'none';
+  document.getElementById('fr-map-view').style.display  = mode === 'map'  ? '' : 'none';
+  document.getElementById('fr-subtitle').textContent = mode === 'map'
+    ? 'Click cubes on the map to set the route order. The truck crew will see stops in this sequence.'
+    : 'Drag cubes to set the circular route order. The truck crew will see stops in this sequence.';
+  if (mode === 'map') {
+    ensureMap();
+    renderMapMarkers();
+  }
 }
 
 // ── Load ──────────────────────────────────────────────────────────────────────
@@ -123,7 +196,6 @@ async function load() {
 function renderLists() {
   renderOnList();
   renderOffList();
-  setDirty(false);
 }
 
 function renderOnList() {
@@ -288,6 +360,157 @@ function moveToEnd(dragId) {
   renderLists();
 }
 
+// ── Map view ──────────────────────────────────────────────────────────────────
+//
+// Click a cube marker to select it as the "anchor". Clicking a different cube
+// then inserts it immediately after the anchor (removing it from wherever it
+// was), and that cube becomes the new anchor — so a chain of clicks lays out
+// the route in order. Clicking an off-route cube while no anchor is selected
+// appends it to the end of the route. Clicking the anchor again, or the empty
+// map, clears the selection.
+
+function ensureMap() {
+  if (_map) { _map.invalidateSize(); return; }
+  // eslint-disable-next-line no-undef
+  _map = L.map('fr-map', { zoomControl: true });
+  // eslint-disable-next-line no-undef
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+    maxZoom: 19,
+  }).addTo(_map);
+  _map.on('click', () => {
+    if (_anchorId !== null) {
+      _anchorId = null;
+      renderMapMarkers();
+    }
+  });
+}
+
+function _cubeIcon(onRoute, position, isAnchor) {
+  const bg   = isAnchor ? '#d97706' : onRoute ? '#1d6ef5' : '#9ca3af';
+  const size = isAnchor ? 30 : onRoute ? 26 : 18;
+  const label = onRoute ? String(position) : '';
+  // eslint-disable-next-line no-undef
+  return L.divIcon({
+    html: `<div style="
+      width:${size}px;height:${size}px;background:${bg};
+      border:2px solid #fff;border-radius:50%;cursor:pointer;
+      box-shadow:0 2px 6px rgba(0,0,0,.4);
+      display:flex;align-items:center;justify-content:center;
+      font-size:${onRoute ? 11 : 9}px;color:#fff;font-weight:bold;
+      font-family:-apple-system,sans-serif;
+    ">${label}</div>`,
+    className: '',
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size / 2],
+    popupAnchor: [0, -(size / 2 + 4)],
+  });
+}
+
+function renderMapMarkers() {
+  if (!_map) return;
+
+  _mapMarkers.forEach(m => m.remove());
+  _mapMarkers.clear();
+
+  const all        = [..._onRoute, ..._offRoute];
+  const withCoords = all.filter(c => c.latitude != null && c.longitude != null);
+
+  document.getElementById('fr-map-no-coords')?.remove();
+
+  if (!withCoords.length) {
+    const msg = document.createElement('div');
+    msg.id = 'fr-map-no-coords';
+    msg.className = 'fr-map-no-coords';
+    msg.innerHTML = 'No cubes have GPS coordinates yet.<br><span style="font-size:12px;opacity:.7">Set coordinates in Admin → Equipment → Items, then come back to Map view.</span>';
+    document.getElementById('fr-map').appendChild(msg);
+    renderMapLegend(0, all.length);
+    return;
+  }
+
+  const bounds = [];
+  withCoords.forEach(c => {
+    const onIdx    = _onRoute.findIndex(o => o.id === c.id);
+    const position = onIdx === -1 ? null : onIdx + 1;
+    const isAnchor = c.id === _anchorId;
+    const latlng   = [c.latitude, c.longitude];
+    bounds.push(latlng);
+
+    // eslint-disable-next-line no-undef
+    const marker = L.marker(latlng, { icon: _cubeIcon(position !== null, position, isAnchor) })
+      .addTo(_map)
+      .bindTooltip(
+        `<b>${escHtml(c.cube_label)}</b><br>${escHtml(c.barrio_name || 'unassigned')}<br>` +
+        (position !== null ? `Stop #${position}` : 'Not on route'),
+        { direction: 'top', offset: [0, -(isAnchor ? 17 : 15)] }
+      );
+    marker.on('click', e => {
+      // eslint-disable-next-line no-undef
+      L.DomEvent.stopPropagation(e);
+      handleMapClick(c.id);
+    });
+
+    _mapMarkers.set(c.id, marker);
+  });
+
+  if (!_mapBoundsSet && bounds.length) {
+    if (bounds.length === 1) _map.setView(bounds[0], 16);
+    else _map.fitBounds(bounds, { padding: [48, 48] });
+    _mapBoundsSet = true;
+  }
+
+  renderMapLegend(withCoords.length, all.length - withCoords.length);
+}
+
+function renderMapLegend(shown, hidden) {
+  const el = document.getElementById('fr-map-legend');
+  if (!el) return;
+  el.innerHTML = `
+    <span><i style="background:#1d6ef5"></i> On route</span>
+    <span><i style="background:#9ca3af"></i> Not on route</span>
+    <span><i style="background:#d97706"></i> Selected</span>
+    ${hidden ? `<span>${hidden} cube${hidden !== 1 ? 's' : ''} hidden — no GPS coordinates</span>` : ''}
+  `;
+}
+
+function handleMapClick(id) {
+  if (_anchorId === null) {
+    if (!_onRoute.find(c => c.id === id)) {
+      moveToEnd(id);
+    }
+    _anchorId = id;
+  } else if (_anchorId === id) {
+    _anchorId = null;
+  } else {
+    insertAfterId(id, _anchorId);
+    setDirty(true);
+    renderLists();
+    _anchorId = id;
+  }
+  renderMapMarkers();
+}
+
+// Removes the cube `id` from wherever it currently sits and reinserts it
+// immediately after cube `afterId` in the route.
+function insertAfterId(id, afterId) {
+  let item = null;
+  let idx  = _onRoute.findIndex(c => c.id === id);
+  if (idx !== -1) {
+    [item] = _onRoute.splice(idx, 1);
+  } else {
+    idx = _offRoute.findIndex(c => c.id === id);
+    if (idx !== -1) [item] = _offRoute.splice(idx, 1);
+  }
+  if (!item) return;
+
+  const afterIdx = _onRoute.findIndex(c => c.id === afterId);
+  if (afterIdx === -1) {
+    _onRoute.push(item);
+  } else {
+    _onRoute.splice(afterIdx + 1, 0, item);
+  }
+}
+
 // ── Save ──────────────────────────────────────────────────────────────────────
 
 async function saveRoute() {
@@ -300,12 +523,14 @@ async function saveRoute() {
       unset_ids:   _offRoute.map(c => c.id),
     });
     _toast(`Route saved — ${_onRoute.length} stop${_onRoute.length !== 1 ? 's' : ''}`);
-    setDirty(false);
     // Refresh to confirm saved positions
     await load();
     renderLists();
+    setDirty(false);
+    if (_viewMode === 'map') renderMapMarkers();
   } catch (e) {
     _toast('Failed to save: ' + (e.message ?? 'unknown error'));
+  } finally {
     if (btn) { btn.disabled = false; btn.textContent = 'Save route'; }
   }
 }

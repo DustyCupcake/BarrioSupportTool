@@ -764,7 +764,7 @@ function handle_admin_fill_route_cubes(): void {
     }
 
     $stmt = db()->prepare(
-        "SELECT i.id, i.qr_code, i.route_position, i.status,
+        "SELECT i.id, i.qr_code, i.route_position, i.status, i.latitude, i.longitude,
                 CONCAT(t.name, ' #', i.item_number) AS cube_label,
                 b.id AS barrio_id, b.name AS barrio_name,
                 (SELECT MAX(tx.occurred_at) FROM transactions tx
@@ -781,6 +781,8 @@ function handle_admin_fill_route_cubes(): void {
         $r['id']             = (int)$r['id'];
         $r['route_position'] = $r['route_position'] !== null ? (int)$r['route_position'] : null;
         $r['barrio_id']      = $r['barrio_id'] ? (int)$r['barrio_id'] : null;
+        $r['latitude']       = $r['latitude']  !== null ? (float)$r['latitude']  : null;
+        $r['longitude']      = $r['longitude'] !== null ? (float)$r['longitude'] : null;
     }
     unset($r);
 
