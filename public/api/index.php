@@ -58,6 +58,7 @@ $routes = [
     ['GET',  '/auth/person-token-info',   'routes/auth.php', 'handle_person_token_info'],
     ['POST', '/auth/person-claim',        'routes/auth.php', 'handle_person_claim'],
     ['POST', '/auth/person-login',        'routes/auth.php', 'handle_person_login'],
+    ['POST', '/auth/barrio-identify',     'routes/auth.php', 'handle_barrio_identify'],
 
     // Staff — inventory & equipment ops
     ['GET',  '/camps',               'routes/camps.php',        'handle_camps'],
