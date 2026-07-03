@@ -421,6 +421,154 @@ function handle_bulk_update_items(): void {
     json_ok(['updated' => $stmt->rowCount()]);
 }
 
+// ─── POST /admin/items/import-status-csv ──────────────────────────────────
+// Bulk backfill tool for reconciling item state after the app was down.
+// Columns beyond qr_code are all optional — only the ones present in the
+// file are applied, and a blank cell leaves that field unchanged. Setting
+// "barrio" to a name checks the item out to that barrio; leaving it blank
+// checks the item back in (if it currently has a barrio assigned).
+function handle_import_status_csv(): void {
+    require_method('POST');
+    $user = require_permission('manage_equipment');
+    verify_csrf();
+
+    if (empty($_FILES['file'])) json_error('No file uploaded', 400);
+    $tmp = $_FILES['file']['tmp_name'];
+    if (!is_readable($tmp)) json_error('Could not read file', 400);
+
+    $fh = fopen($tmp, 'r');
+    $headers = fgetcsv($fh);
+    if (!$headers) { fclose($fh); json_error('Empty CSV', 400); }
+    $headers = array_map('trim', array_map('strtolower', $headers));
+    if (isset($headers[0])) $headers[0] = preg_replace('/^\xEF\xBB\xBF/', '', $headers[0]);
+
+    $qr_col = array_search('qr_code', $headers, true);
+    if ($qr_col === false) $qr_col = array_search('qr', $headers, true);
+    if ($qr_col === false) { fclose($fh); json_error('CSV must have a "qr_code" column', 400); }
+
+    $status_col = array_search('status', $headers, true);
+    $barrio_col = array_search('barrio', $headers, true);
+    if ($barrio_col === false) $barrio_col = array_search('barrio_name', $headers, true);
+    $notes_col  = array_search('notes', $headers, true);
+
+    if ($status_col === false && $barrio_col === false && $notes_col === false) {
+        fclose($fh);
+        json_error('CSV must include at least one of: status, barrio, notes', 400);
+    }
+
+    $allowed_statuses = ['available', 'checked-out', 'retired'];
+
+    $barrio_by_name = [];
+    foreach (db()->query('SELECT id, name FROM barrios')->fetchAll() as $b) {
+        $barrio_by_name[strtolower($b['name'])] = (int)$b['id'];
+    }
+
+    $now = date('Y-m-d H:i:s');
+    $pdo = db();
+    $pdo->beginTransaction();
+
+    $updated = 0; $checked_out = 0; $checked_in = 0; $errors = []; $row_num = 1;
+
+    try {
+        while (($row = fgetcsv($fh)) !== false) {
+            $row_num++;
+            $qr = trim($row[$qr_col] ?? '');
+            if ($qr === '') continue;
+
+            $stmt = $pdo->prepare(
+                'SELECT id, current_dept_id, current_barrio_id
+                 FROM equipment_items WHERE qr_code = ? FOR UPDATE'
+            );
+            $stmt->execute([$qr]);
+            $item = $stmt->fetch();
+
+            if (!$item) {
+                $errors[] = ['row' => $row_num, 'qr_code' => $qr, 'error' => 'Item not found'];
+                continue;
+            }
+
+            $row_changed = false;
+
+            if ($barrio_col !== false) {
+                $barrio_val = trim($row[$barrio_col] ?? '');
+                if ($barrio_val !== '') {
+                    $key = strtolower($barrio_val);
+                    if (!isset($barrio_by_name[$key])) {
+                        $errors[] = ['row' => $row_num, 'qr_code' => $qr, 'error' => "Barrio \"$barrio_val\" not found"];
+                    } elseif (!$item['current_dept_id']) {
+                        $errors[] = ['row' => $row_num, 'qr_code' => $qr, 'error' => 'Item has no department assigned — cannot check out to a barrio'];
+                    } else {
+                        $barrio_id = $barrio_by_name[$key];
+                        $pdo->prepare(
+                            'UPDATE equipment_items
+                             SET status = "checked-out", current_barrio_id = ?, current_artist_id = NULL, current_person_id = NULL
+                             WHERE id = ?'
+                        )->execute([$barrio_id, $item['id']]);
+                        $pdo->prepare(
+                            'INSERT INTO transactions (type, item_id, dept_id, barrio_id, performed_by, user_name_cache, is_offline_entry, occurred_at, notes)
+                             VALUES ("sub_checkout", ?, ?, ?, ?, ?, 1, ?, ?)'
+                        )->execute([$item['id'], $item['current_dept_id'], $barrio_id, $user['id'], $user['display_name'], $now, 'CSV import backfill']);
+                        $checked_out++;
+                        $row_changed = true;
+                    }
+                } elseif ($item['current_barrio_id']) {
+                    $prev_barrio_id = (int)$item['current_barrio_id'];
+                    $pdo->prepare(
+                        'UPDATE equipment_items
+                         SET current_barrio_id = NULL, current_artist_id = NULL, current_person_id = NULL
+                         WHERE id = ?'
+                    )->execute([$item['id']]);
+                    $pdo->prepare(
+                        'INSERT INTO transactions (type, item_id, dept_id, barrio_id, performed_by, user_name_cache, is_offline_entry, occurred_at, notes)
+                         VALUES ("sub_checkin", ?, ?, ?, ?, ?, 1, ?, ?)'
+                    )->execute([$item['id'], $item['current_dept_id'], $prev_barrio_id, $user['id'], $user['display_name'], $now, 'CSV import backfill']);
+                    $checked_in++;
+                    $row_changed = true;
+                }
+            }
+
+            if ($status_col !== false) {
+                $status_val = trim($row[$status_col] ?? '');
+                if ($status_val !== '') {
+                    if (!in_array($status_val, $allowed_statuses, true)) {
+                        $errors[] = ['row' => $row_num, 'qr_code' => $qr, 'error' => "Invalid status \"$status_val\""];
+                    } else {
+                        $pdo->prepare('UPDATE equipment_items SET status = ? WHERE id = ?')
+                            ->execute([$status_val, $item['id']]);
+                        $row_changed = true;
+                    }
+                }
+            }
+
+            if ($notes_col !== false) {
+                $notes_val = trim($row[$notes_col] ?? '');
+                if ($notes_val !== '') {
+                    $pdo->prepare('UPDATE equipment_items SET notes = ? WHERE id = ?')
+                        ->execute([$notes_val, $item['id']]);
+                    $row_changed = true;
+                }
+            }
+
+            if ($row_changed) $updated++;
+        }
+
+        $pdo->commit();
+    } catch (Throwable $e) {
+        $pdo->rollBack();
+        fclose($fh);
+        json_error('Database error: ' . $e->getMessage(), 500);
+    }
+    fclose($fh);
+
+    json_ok([
+        'processed'   => $row_num - 1,
+        'updated'     => $updated,
+        'checked_out' => $checked_out,
+        'checked_in'  => $checked_in,
+        'errors'      => $errors,
+    ]);
+}
+
 function handle_delete_item(): void {
     require_method('DELETE');
     require_admin();

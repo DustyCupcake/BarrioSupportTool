@@ -62,6 +62,7 @@ function renderShell(container) {
     exportQR,
     addSpecField, removeSpecField, moveSpecField,
     uploadItemPhoto,
+    openImportStatus, runImportStatus,
     _useGps: () => {},
     _slugLabel(labelEl, keyId) {
       const keyEl = document.getElementById(keyId);
@@ -315,7 +316,8 @@ async function renderItemsTable(filter_type_id = '') {
   ).join('');
 
   const addBtn    = `<button class="btn primary sm" style="margin-bottom:1rem;margin-right:.5rem" onclick="window._eq.openAddItems()">+ Add items</button>`;
-  const exportBtn = `<button class="btn sm" style="margin-bottom:1rem" onclick="window._eq.exportQR('${filter_type_id}')">Export QR sheet</button>`;
+  const exportBtn = `<button class="btn sm" style="margin-bottom:1rem;margin-right:.5rem" onclick="window._eq.exportQR('${filter_type_id}')">Export QR sheet</button>`;
+  const importBtn = `<button class="btn sm" style="margin-bottom:1rem" onclick="window._eq.openImportStatus()">Import status updates (CSV)</button>`;
 
   const filter = `
     <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.75rem">
@@ -333,7 +335,7 @@ async function renderItemsTable(filter_type_id = '') {
   }, 0);
 
   if (!_items.length) {
-    area.innerHTML = addBtn + exportBtn + filter + '<div class="empty">No items found</div>';
+    area.innerHTML = addBtn + exportBtn + importBtn + filter + '<div class="empty">No items found</div>';
     return;
   }
 
@@ -357,7 +359,7 @@ async function renderItemsTable(filter_type_id = '') {
     </div>
   `;
 
-  area.innerHTML = addBtn + exportBtn + filter + bulkBar + `
+  area.innerHTML = addBtn + exportBtn + importBtn + filter + bulkBar + `
     <table class="data-table">
       <thead>
         <tr>
@@ -495,6 +497,67 @@ async function saveItems() {
     const res = await post('/admin/items', { equipment_type_id: type_id, count, qr_prefix });
     _toast(`Created ${res.created.length} item(s)`);
     document.getElementById('eq-form-area').innerHTML = '';
+    await renderItemsTable();
+  } catch (e) { _toast('Error: ' + e.message); }
+}
+
+function openImportStatus() {
+  document.getElementById('eq-form-area').innerHTML = `
+    <div class="form-card">
+      <h2>Import status updates (CSV)</h2>
+      <div class="hint">
+        Required column: <code>qr_code</code>. Optional columns — only the ones present in the
+        file are applied, and a blank cell leaves that field unchanged:
+        <ul style="margin:.35rem 0 0 1.1rem">
+          <li><code>status</code> — available / checked-out / retired</li>
+          <li><code>barrio</code> — barrio name to check the item out to; leave blank to check it
+              back in from its current barrio</li>
+          <li><code>notes</code></li>
+        </ul>
+      </div>
+      <div class="field">
+        <label>CSV file</label>
+        <input type="file" id="isc-file" accept=".csv">
+      </div>
+      <div class="form-actions">
+        <button class="btn primary sm" onclick="window._eq.runImportStatus()">Import</button>
+        <button class="btn sm" onclick="document.getElementById('eq-form-area').innerHTML=''">Cancel</button>
+      </div>
+      <div id="isc-result"></div>
+    </div>
+  `;
+}
+
+async function runImportStatus() {
+  const fileInput = document.getElementById('isc-file');
+  const file = fileInput?.files?.[0];
+  if (!file) { _toast('Select a CSV file first'); return; }
+
+  try {
+    const csrf = await getCsrf();
+    const fd = new FormData();
+    fd.append('file', file);
+    const resp = await fetch('/api/admin/items/import-status-csv', {
+      method: 'POST',
+      headers: { 'X-CSRF-Token': csrf },
+      credentials: 'include',
+      body: fd,
+    });
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Import failed');
+
+    _toast(`Updated ${data.updated} of ${data.processed} row(s) — ${data.checked_out} checked out, ${data.checked_in} checked in`);
+
+    const resultEl = document.getElementById('isc-result');
+    if (resultEl) {
+      resultEl.innerHTML = data.errors.length
+        ? `<div class="hint" style="color:var(--danger,#c00);margin-top:.5rem">
+             ${data.errors.length} row(s) had problems:
+             <ul style="margin:.35rem 0 0 1.1rem">${data.errors.map(e =>
+               `<li>Row ${e.row} (${esc(e.qr_code)}): ${esc(e.error)}</li>`).join('')}</ul>
+           </div>`
+        : '';
+    }
     await renderItemsTable();
   } catch (e) { _toast('Error: ' + e.message); }
 }
