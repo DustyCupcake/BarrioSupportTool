@@ -834,7 +834,6 @@ async function finalise() {
 
     const failed = result.results?.filter(r => !r.success) ?? [];
     if (failed.length) toast(`${failed.length} item(s) failed to lend`);
-    else if (result.barrio_location_note) toast(result.barrio_location_note);
     else toast(__('success').replace('[N]', scannedItems.length).replace('[BARRIO]', selectedEntity.name));
 
     // Record barrio arrival if applicable

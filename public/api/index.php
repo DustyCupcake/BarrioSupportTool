@@ -6,6 +6,7 @@ error_reporting(E_ALL);
 
 require_once __DIR__ . '/lib/db.php';
 require_once __DIR__ . '/lib/response.php';
+require_once __DIR__ . '/lib/barrio_location.php';
 require_once __DIR__ . '/auth.php';
 
 // Naive DATETIME columns (shift windows, invite/token expiry, order deadlines) are entered

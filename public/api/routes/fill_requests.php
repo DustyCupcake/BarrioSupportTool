@@ -241,7 +241,7 @@ function handle_fill_route(): void {
         } else {
             $bid = $r['entity_id'];
             if (!array_key_exists($bid, $barrio_loc_cache)) {
-                $barrio_loc_cache[$bid] = _get_barrio_location($pdo, $bid);
+                $barrio_loc_cache[$bid] = get_barrio_location($pdo, $bid);
             }
             $loc = $barrio_loc_cache[$bid];
             if ($loc) {
@@ -506,7 +506,7 @@ function handle_cube_status(): void {
     if ($latitude !== null && $longitude !== null) {
         $location_source = 'cube';
     } elseif ($entity_id) {
-        $barrio_loc = _get_barrio_location($pdo, $entity_id);
+        $barrio_loc = get_barrio_location($pdo, $entity_id);
         if ($barrio_loc) {
             $latitude  = $barrio_loc['latitude'];
             $longitude = $barrio_loc['longitude'];
@@ -892,44 +892,29 @@ function handle_admin_apply_barrio_locations(): void {
     $stmt->execute();
     $cubes = $stmt->fetchAll();
 
-    $applied           = 0;
-    $skipped_no_loc     = 0;
-    $skipped_ambiguous  = 0;
-    $barrio_loc_cache   = []; // barrio_id -> ['lat'=>, 'lng'=>] | 'none' | 'ambiguous'
+    $applied         = 0;
+    $skipped         = 0;
+    $barrio_loc_cache = []; // barrio_id -> location array | null, via get_barrio_location()
 
     foreach ($cubes as $cube) {
         $barrio_id = (int)$cube['current_barrio_id'];
 
         if (!array_key_exists($barrio_id, $barrio_loc_cache)) {
-            $lstmt = $pdo->prepare(
-                'SELECT latitude, longitude FROM storage_locations
-                 WHERE barrio_id = ? AND latitude IS NOT NULL AND longitude IS NOT NULL'
-            );
-            $lstmt->execute([$barrio_id]);
-            $locs = $lstmt->fetchAll();
-            if (count($locs) === 1) {
-                $barrio_loc_cache[$barrio_id] = ['lat' => (float)$locs[0]['latitude'], 'lng' => (float)$locs[0]['longitude']];
-            } elseif (count($locs) === 0) {
-                $barrio_loc_cache[$barrio_id] = 'none';
-            } else {
-                $barrio_loc_cache[$barrio_id] = 'ambiguous';
-            }
+            $barrio_loc_cache[$barrio_id] = get_barrio_location($pdo, $barrio_id);
         }
 
         $loc = $barrio_loc_cache[$barrio_id];
-        if ($loc === 'none') { $skipped_no_loc++; continue; }
-        if ($loc === 'ambiguous') { $skipped_ambiguous++; continue; }
+        if ($loc === null) { $skipped++; continue; }
 
         $pdo->prepare('UPDATE equipment_items SET latitude = ?, longitude = ? WHERE id = ?')
-            ->execute([$loc['lat'], $loc['lng'], $cube['id']]);
+            ->execute([$loc['latitude'], $loc['longitude'], $cube['id']]);
         $applied++;
     }
 
     json_ok([
-        'applied'          => $applied,
-        'skipped_no_location'    => $skipped_no_loc,
-        'skipped_ambiguous'      => $skipped_ambiguous,
-        'candidates'       => count($cubes),
+        'applied'    => $applied,
+        'skipped'    => $skipped,
+        'candidates' => count($cubes),
     ]);
 }
 
@@ -956,19 +941,6 @@ function _get_pending_fills(\PDO $pdo, int $entity_id): int {
     );
     $stmt->execute([$entity_id]);
     return (int)$stmt->fetchColumn();
-}
-
-// A barrio's default location: only used when the barrio has exactly one
-// storage_location with coordinates set — otherwise it's ambiguous, so no default.
-function _get_barrio_location(\PDO $pdo, int $barrio_id): ?array {
-    $stmt = $pdo->prepare(
-        'SELECT latitude, longitude FROM storage_locations
-         WHERE barrio_id = ? AND latitude IS NOT NULL AND longitude IS NOT NULL'
-    );
-    $stmt->execute([$barrio_id]);
-    $rows = $stmt->fetchAll();
-    if (count($rows) !== 1) return null;
-    return ['latitude' => (float)$rows[0]['latitude'], 'longitude' => (float)$rows[0]['longitude']];
 }
 
 function _first_cube_item_id(\PDO $pdo, int $barrio_id): ?int {

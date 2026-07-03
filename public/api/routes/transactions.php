@@ -110,20 +110,12 @@ function handle_sub_checkout(): void {
     // If no explicit GPS was captured, fall back to the barrio's storage location —
     // but only when it's unambiguous (exactly one location on file for that barrio).
     $barrio_location_applied = false;
-    $barrio_location_note    = null;
     if ($barrio_id && $apply_barrio_location && $latitude === null && $longitude === null) {
-        $stmt = db()->prepare(
-            'SELECT latitude, longitude FROM storage_locations
-             WHERE barrio_id = ? AND latitude IS NOT NULL AND longitude IS NOT NULL'
-        );
-        $stmt->execute([$barrio_id]);
-        $locs = $stmt->fetchAll();
-        if (count($locs) === 1) {
-            $latitude  = (float)$locs[0]['latitude'];
-            $longitude = (float)$locs[0]['longitude'];
+        $loc = get_barrio_location(db(), $barrio_id);
+        if ($loc) {
+            $latitude  = $loc['latitude'];
+            $longitude = $loc['longitude'];
             $barrio_location_applied = true;
-        } elseif (count($locs) > 1) {
-            $barrio_location_note = 'Barrio has multiple storage locations — item position left unchanged';
         }
     }
 
@@ -186,7 +178,6 @@ function handle_sub_checkout(): void {
     json_ok([
         'results'                 => $results,
         'barrio_location_applied' => $barrio_location_applied,
-        'barrio_location_note'    => $barrio_location_note,
     ]);
 }
 

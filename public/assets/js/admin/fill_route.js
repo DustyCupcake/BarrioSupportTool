@@ -170,8 +170,7 @@ async function applyBarrioLocations() {
   try {
     const res = await post('/admin/fill-route/apply-barrio-locations', {});
     const parts = [`${res.applied} cube${res.applied !== 1 ? 's' : ''} updated`];
-    if (res.skipped_no_location)   parts.push(`${res.skipped_no_location} skipped (barrio has no stored location)`);
-    if (res.skipped_ambiguous)     parts.push(`${res.skipped_ambiguous} skipped (barrio has multiple locations)`);
+    if (res.skipped) parts.push(`${res.skipped} skipped (no unambiguous barrio location on file)`);
     _toast(parts.join(' — '));
 
     if (res.applied) {
