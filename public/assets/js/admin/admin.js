@@ -6,7 +6,7 @@
 import { get, setCsrf }          from '../api.js?v=1.0.1';
 import { initBarrios }           from './barrios.js?v=1.0.1';
 import { initArtists }           from './artists.js?v=1.0.0';
-import { initEquipment }         from './equipment.js?v=1.0.2';
+import { initEquipment }         from './equipment.js?v=1.0.3';
 import { initUsers }             from './users.js?v=1.1.0';
 import { initTeams }             from './teams.js?v=1.1.0';
 import { initShifts }            from './shifts.js?v=1.0.1';

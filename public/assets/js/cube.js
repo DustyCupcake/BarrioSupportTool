@@ -160,8 +160,9 @@ function renderResult(qr, data) {
     metaItems.push(`<span>${escHtml(entity_name)}</span>`);
   }
 
-  const showRequestBtn = canRequestFills() && !fill_requested && credits_remaining > 0;
-  const noCreditWarning = canRequestFills() && !fill_requested && credits_remaining <= 0;
+  const showRequestBtn   = canRequestFills() && !fill_requested && credits_remaining > 0;
+  const noCreditWarning  = canRequestFills() && !fill_requested && credits_remaining <= 0;
+  const showIdentifyBtn  = !canRequestFills() && !fill_requested && !!entity_name;
 
   wrap.innerHTML = `
     <div class="cb-result ${escAttr(statusClass)}">
@@ -179,6 +180,10 @@ function renderResult(qr, data) {
           <div class="cb-result-body">Contact production to purchase more fills.</div>
         </div>
       ` : ''}
+      ${showIdentifyBtn ? `
+        <button class="btn cb-request-btn" id="cb-identify-btn">Scan your barrio's QR to request a fill</button>
+        <div class="cb-credits-info">For ${escHtml(entity_name)}</div>
+      ` : ''}
       ${fill_requested ? `
         <div class="cb-credits-info" style="margin-top:.5rem">
           ${fills_remaining !== null ? `${fills_remaining} fill${fills_remaining !== 1 ? 's' : ''} still pending` : ''}
@@ -193,6 +198,90 @@ function renderResult(qr, data) {
   const reqBtn = document.getElementById('cb-request-btn');
   if (reqBtn) {
     reqBtn.onclick = () => requestFill(qr, reqBtn, data);
+  }
+
+  const idBtn = document.getElementById('cb-identify-btn');
+  if (idBtn) {
+    idBtn.onclick = () => renderIdentifyScanner(qr, data);
+  }
+}
+
+// ─── Barrio self-identify ───────────────────────────────────────────────────
+
+function renderIdentifyScanner(cubeQr, prevData) {
+  if (scanner) { scanner.stop(); scanner = null; }
+
+  wrap.innerHTML = `
+    <div class="cb-card">
+      <div class="cb-card-label">Scan your barrio's QR code</div>
+      <div class="cb-video-wrap">
+        <video id="cb-id-video" playsinline muted></video>
+        <div class="cb-scan-overlay">
+          <div class="cb-scan-frame"><div class="cb-scan-line"></div></div>
+        </div>
+      </div>
+      <div class="cb-status" id="cb-id-status">Aim camera at your barrio's QR code…</div>
+      <button class="cb-manual-link" id="cb-id-manual-toggle">Can't scan? Enter code manually</button>
+      <div class="cb-manual-wrap" id="cb-id-manual-wrap" style="display:none">
+        <input type="text" id="cb-id-manual-input" placeholder="Type barrio code" autocomplete="off">
+        <button class="btn sm" id="cb-id-manual-submit">Identify</button>
+      </div>
+      <button class="btn secondary" id="cb-id-cancel" style="width:100%;margin-top:.75rem">Cancel</button>
+    </div>
+  `;
+
+  document.getElementById('cb-id-cancel').onclick = () => renderResult(cubeQr, prevData);
+
+  document.getElementById('cb-id-manual-toggle').onclick = () => {
+    const w = document.getElementById('cb-id-manual-wrap');
+    const shown = w.style.display !== 'none';
+    w.style.display = shown ? 'none' : '';
+    if (!shown) document.getElementById('cb-id-manual-input').focus();
+  };
+
+  document.getElementById('cb-id-manual-submit').onclick = () => {
+    const val = document.getElementById('cb-id-manual-input')?.value?.trim();
+    if (val) identifyBarrio(val, cubeQr, prevData);
+  };
+
+  document.getElementById('cb-id-manual-input')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      const val = e.target.value.trim();
+      if (val) identifyBarrio(val, cubeQr, prevData);
+    }
+  });
+
+  const video = document.getElementById('cb-id-video');
+  scanner = new Scanner(video, (qr) => identifyBarrio(qr, cubeQr, prevData));
+  scanner.start().catch(() => {
+    const stat = document.getElementById('cb-id-status');
+    if (stat) stat.textContent = 'Camera unavailable — enter code manually';
+    document.getElementById('cb-id-manual-wrap').style.display = '';
+  });
+}
+
+async function identifyBarrio(barrioQr, cubeQr, prevData) {
+  if (scanner) { scanner.stop(); scanner = null; }
+  const stat = document.getElementById('cb-id-status');
+  if (stat) stat.textContent = 'Checking…';
+
+  try {
+    const res = await fetch('/api/auth/barrio-identify', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ barrio_qr: barrioQr }),
+    });
+    const data = await res.json();
+
+    if (res.ok && data.success) {
+      await loadSession();
+      lookupQr(cubeQr);
+    } else if (stat) {
+      stat.textContent = data.error || 'QR not recognised — try again';
+    }
+  } catch {
+    if (stat) stat.textContent = 'Lookup failed — check connection';
   }
 }
 

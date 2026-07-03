@@ -186,7 +186,7 @@ function handle_barrio_distribute(): void {
 // ─── POST /admin/barrios/import-csv ──────────────────────────────────────────
 function handle_import_csv(): void {
     require_method('POST');
-    require_auth('admin');
+    require_permission('manage_barrios');
     verify_csrf();
 
     if (empty($_FILES['file'])) json_error('No file uploaded', 400);

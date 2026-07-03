@@ -44,7 +44,8 @@ function render(container) {
       <h2>Import barrios via CSV</h2>
       <p style="margin:0 0 8px;color:var(--text2);font-size:14px">
         Required column: <code>name</code>. Optional: <code>sort_order</code>,
-        consumable type keys (e.g. <code>water_vouchers</code>),
+        consumable type keys (e.g. <code>water_fill</code> for fill credits — see the
+        "key" column under Consumables for the exact keys to use),
         equipment type names (e.g. <code>Radio</code>).
       </p>
       <div class="field">

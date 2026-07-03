@@ -328,6 +328,52 @@ function handle_shift_login(): void {
     ]);
 }
 
+// ─── Barrio self-identify session ─────────────────────────────────────────────
+// Lets anyone who can see a barrio's own QR badge get a lightweight session
+// scoped to that barrio (request_fills only), so they can request water fills
+// from the public cube page without a full staff login or an admin-issued
+// shift token.
+function handle_barrio_identify(): void {
+    require_method('POST');
+    start_session();
+
+    $b  = body();
+    $qr = trim($b['barrio_qr'] ?? '');
+    if ($qr === '') json_error('barrio_qr required', 400);
+
+    $stmt = db()->prepare('SELECT id, name FROM barrios WHERE qr_code = ?');
+    $stmt->execute([$qr]);
+    $barrio = $stmt->fetch();
+
+    if (!$barrio) json_error('Barrio QR not recognised', 404);
+
+    $csrf = bin2hex(random_bytes(32));
+    session_regenerate_id(true);
+    $_SESSION = [
+        'user_id'      => null,
+        'username'     => null,
+        'display_name' => $barrio['name'],
+        'role'         => null,
+        'dept_ids'     => [],
+        'dept_roles'   => [],
+        'permissions'  => ['request_fills'],
+        'language'     => 'en',
+        'is_shift'     => true,
+        'shift_id'     => null,
+        'shift_name'   => null,
+        'barrio_id'    => (int)$barrio['id'],
+        'csrf_token'   => $csrf,
+    ];
+
+    json_ok([
+        'success'     => true,
+        'barrio_id'   => (int)$barrio['id'],
+        'barrio_name' => $barrio['name'],
+        'permissions' => ['request_fills'],
+        'csrf_token'  => $csrf,
+    ]);
+}
+
 function handle_change_password(): void {
     require_method('POST');
     $user = require_auth();
