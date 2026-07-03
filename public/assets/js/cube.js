@@ -181,8 +181,8 @@ function renderResult(qr, data) {
         </div>
       ` : ''}
       ${showIdentifyBtn ? `
-        <button class="btn cb-request-btn" id="cb-identify-btn">Request a fill for ${escHtml(entity_name)}</button>
-        <div class="cb-credits-info">Scan your barrio's QR code to request a fill</div>
+        <button class="btn cb-request-btn" id="cb-identify-btn">Scan your barrio's QR to request a fill</button>
+        <div class="cb-credits-info">For ${escHtml(entity_name)}</div>
       ` : ''}
       ${fill_requested ? `
         <div class="cb-credits-info" style="margin-top:.5rem">
