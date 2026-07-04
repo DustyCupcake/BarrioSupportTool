@@ -1,6 +1,6 @@
 import { get, post, setCsrf } from './api.js?v=1.0.1';
 import { initOfflineSync } from './offline.js?v=1.0.0';
-import { init as initCheckout } from './checkout.js?v=1.0.3';
+import { init as initCheckout } from './checkout.js?v=1.0.4';
 import { init as initCheckin, destroy as destroyCheckin } from './checkin.js?v=1.0.2';
 import { init as initBarrios, destroy as destroyBarrios } from './barrios.js?v=1.0.2';
 import { init as initInventory } from './inventory.js?v=1.0.0';
