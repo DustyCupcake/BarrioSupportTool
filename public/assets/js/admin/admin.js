@@ -14,7 +14,9 @@ import { initConsumables }       from './consumables.js?v=1.0.0';
 import { initOrders }            from './orders.js?v=1.0.0';
 import { initStorageLocations }  from './storage_locations.js?v=1.1.0';
 import { initPersonTokens }      from './person_tokens.js?v=1.0.0';
-import { initFillRoute }         from './fill_route.js?v=1.2.0';
+import { initFillRoute }         from './fill_route.js?v=1.3.0';
+import { initFillRequests }      from './fill_requests.js?v=1.0.0';
+import { initSiteMap }           from './site_map.js?v=1.0.1';
 import { initPrintTemplates }   from './print_templates.js?v=1.0.4';
 import { initReset }            from './reset.js?v=1.0.0';
 
@@ -34,7 +36,9 @@ const SECTION_PERMS = {
   orders:             ['manage_orders'],
   'storage-locations': ['manage_equipment'],
   'person-badges':     ['manage_users'],
+  'fill-requests':     ['manage_barrios'],
   'fill-route':        ['manage_barrios', 'manage_equipment'],
+  'site-map':          ['manage_barrios', 'manage_equipment'],
   'print-templates':   ['manage_equipment'],
   'reset':             ['manage_equipment', 'manage_barrios'],
 };
@@ -130,7 +134,9 @@ function navigate(section) {
     case 'orders':             initOrders(content, toast);              break;
     case 'storage-locations':  initStorageLocations(content, toast);    break;
     case 'person-badges':      initPersonTokens(content, toast);        break;
+    case 'fill-requests':      initFillRequests(content, toast);        break;
     case 'fill-route':         initFillRoute(content, toast);           break;
+    case 'site-map':           initSiteMap(content, toast);             break;
     case 'print-templates':    initPrintTemplates(content, toast);      break;
     case 'reset':              initReset(content, toast);               break;
     default:            navigate(
