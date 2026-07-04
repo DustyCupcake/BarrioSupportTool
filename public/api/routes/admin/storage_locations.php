@@ -6,10 +6,12 @@ function handle_list_locations(): void {
     require_permission('manage_equipment');
 
     $rows = db()->query(
-        'SELECT id, name, description, latitude, longitude, qr_code, created_at,
-                (SELECT COUNT(*) FROM equipment_items WHERE current_location_id = storage_locations.id) AS item_count
-         FROM storage_locations
-         ORDER BY name'
+        'SELECT sl.id, sl.name, sl.description, sl.latitude, sl.longitude, sl.qr_code, sl.created_at,
+                sl.barrio_id, b.name AS barrio_name,
+                (SELECT COUNT(*) FROM equipment_items WHERE current_location_id = sl.id) AS item_count
+         FROM storage_locations sl
+         LEFT JOIN barrios b ON b.id = sl.barrio_id
+         ORDER BY sl.name'
     )->fetchAll();
 
     foreach ($rows as &$r) {
@@ -17,6 +19,7 @@ function handle_list_locations(): void {
         $r['item_count'] = (int)$r['item_count'];
         $r['latitude']   = $r['latitude']  !== null ? (float)$r['latitude']  : null;
         $r['longitude']  = $r['longitude'] !== null ? (float)$r['longitude'] : null;
+        $r['barrio_id']  = $r['barrio_id'] !== null ? (int)$r['barrio_id']   : null;
     }
     unset($r);
 
@@ -33,16 +36,18 @@ function handle_create_location(): void {
     $description = trim($b['description'] ?? '');
     $latitude    = isset($b['latitude'])  && $b['latitude']  !== '' ? (float)$b['latitude']  : null;
     $longitude   = isset($b['longitude']) && $b['longitude'] !== '' ? (float)$b['longitude'] : null;
+    $barrio_id   = isset($b['barrio_id']) && $b['barrio_id'] !== '' ? (int)$b['barrio_id']   : null;
 
     if ($name === '') json_error('name required');
+    if ($barrio_id !== null) _require_barrio_exists($barrio_id);
 
     $qr_code = bin2hex(random_bytes(12));
 
     try {
         $stmt = db()->prepare(
-            'INSERT INTO storage_locations (name, description, latitude, longitude, qr_code) VALUES (?, ?, ?, ?, ?)'
+            'INSERT INTO storage_locations (name, description, latitude, longitude, qr_code, barrio_id) VALUES (?, ?, ?, ?, ?, ?)'
         );
-        $stmt->execute([$name, $description ?: null, $latitude, $longitude, $qr_code]);
+        $stmt->execute([$name, $description ?: null, $latitude, $longitude, $qr_code, $barrio_id]);
         $id = (int)db()->lastInsertId();
     } catch (PDOException $e) {
         if (str_contains($e->getMessage(), 'Duplicate')) json_error('Name already exists', 409);
@@ -50,7 +55,14 @@ function handle_create_location(): void {
     }
 
     json_ok(['id' => $id, 'name' => $name, 'description' => $description ?: null,
-             'latitude' => $latitude, 'longitude' => $longitude, 'qr_code' => $qr_code], 201);
+             'latitude' => $latitude, 'longitude' => $longitude, 'qr_code' => $qr_code,
+             'barrio_id' => $barrio_id], 201);
+}
+
+function _require_barrio_exists(int $barrio_id): void {
+    $stmt = db()->prepare('SELECT 1 FROM barrios WHERE id = ?');
+    $stmt->execute([$barrio_id]);
+    if (!$stmt->fetchColumn()) json_error('Barrio not found', 404);
 }
 
 function handle_update_location(): void {
@@ -68,13 +80,18 @@ function handle_update_location(): void {
     $longitude   = array_key_exists('longitude', $b)
         ? ($b['longitude'] !== null && $b['longitude'] !== '' ? (float)$b['longitude'] : null)
         : 'unset';
+    $barrio_id   = array_key_exists('barrio_id', $b)
+        ? ($b['barrio_id'] !== null && $b['barrio_id'] !== '' ? (int)$b['barrio_id'] : null)
+        : 'unset';
 
     if (!$id || $name === '') json_error('id and name required');
+    if ($barrio_id !== 'unset' && $barrio_id !== null) _require_barrio_exists($barrio_id);
 
     $sets   = ['name = ?', 'description = ?'];
     $params = [$name, $description ?: null];
     if ($latitude  !== 'unset') { $sets[] = 'latitude = ?';  $params[] = $latitude; }
     if ($longitude !== 'unset') { $sets[] = 'longitude = ?'; $params[] = $longitude; }
+    if ($barrio_id !== 'unset') { $sets[] = 'barrio_id = ?'; $params[] = $barrio_id; }
     $params[] = $id;
 
     try {

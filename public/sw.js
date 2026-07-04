@@ -3,7 +3,7 @@
  * Cache version: bump CACHE_VER when deploying CSS/JS changes.
  */
 
-const CACHE_VER  = 'v3';
+const CACHE_VER  = 'v4';
 const CACHE_NAME = 'barrio-' + CACHE_VER;
 
 const APP_SHELL = [
@@ -12,11 +12,11 @@ const APP_SHELL = [
   '/assets/css/main.css?v=1.0.0',
   '/assets/css/app.css?v=1.0.1',
   '/assets/vendor/jsqr.min.js?v=1.0.0',
-  '/assets/js/app.js?v=1.0.2',
+  '/assets/js/app.js?v=1.0.7',
   '/assets/js/api.js?v=1.0.1',
   '/assets/js/offline.js?v=1.0.0',
   '/assets/js/scanner.js?v=1.0.0',
-  '/assets/js/checkout.js?v=1.0.3',
+  '/assets/js/checkout.js?v=1.0.4',
   '/assets/js/checkin.js?v=1.0.3',
   '/assets/js/inventory.js?v=1.0.0',
   '/assets/js/history.js?v=1.0.0',

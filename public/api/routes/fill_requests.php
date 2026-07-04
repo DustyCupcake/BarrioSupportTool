@@ -220,6 +220,10 @@ function handle_fill_route(): void {
     );
     $rows = $stmt->fetchAll();
 
+    // Cubes without their own coordinates fall back to their barrio's single
+    // storage location (if unambiguous) — cached per barrio to avoid N+1 queries.
+    $barrio_loc_cache = [];
+
     foreach ($rows as &$r) {
         $r['fill_request_id']  = (int)$r['fill_request_id'];
         $r['cube_id']          = (int)$r['cube_id'];
@@ -231,6 +235,23 @@ function handle_fill_route(): void {
         $r['is_cube_specific'] = (bool)$r['is_cube_specific'];
         $r['latitude']         = $r['latitude']  !== null ? (float)$r['latitude']  : null;
         $r['longitude']        = $r['longitude'] !== null ? (float)$r['longitude'] : null;
+
+        if ($r['latitude'] !== null && $r['longitude'] !== null) {
+            $r['location_source'] = 'cube';
+        } else {
+            $bid = $r['entity_id'];
+            if (!array_key_exists($bid, $barrio_loc_cache)) {
+                $barrio_loc_cache[$bid] = get_barrio_location($pdo, $bid);
+            }
+            $loc = $barrio_loc_cache[$bid];
+            if ($loc) {
+                $r['latitude']  = $loc['latitude'];
+                $r['longitude'] = $loc['longitude'];
+                $r['location_source'] = 'barrio';
+            } else {
+                $r['location_source'] = null;
+            }
+        }
     }
     unset($r);
 
@@ -458,7 +479,7 @@ function handle_cube_status(): void {
 
     $pdo  = db();
     $stmt = $pdo->prepare(
-        'SELECT i.id, i.route_position, t.category,
+        'SELECT i.id, i.route_position, i.latitude, i.longitude, t.category,
                 CONCAT(t.name, \' #\', i.item_number) AS cube_label,
                 b.name AS entity_name, b.id AS entity_id
          FROM equipment_items i
@@ -476,6 +497,22 @@ function handle_cube_status(): void {
 
     $cube_id   = (int)$cube['id'];
     $entity_id = $cube['entity_id'] ? (int)$cube['entity_id'] : null;
+
+    // Effective location: the cube's own override if set, else the barrio's
+    // single storage location (if unambiguous), else none.
+    $latitude = $cube['latitude']  !== null ? (float)$cube['latitude']  : null;
+    $longitude = $cube['longitude'] !== null ? (float)$cube['longitude'] : null;
+    $location_source = null;
+    if ($latitude !== null && $longitude !== null) {
+        $location_source = 'cube';
+    } elseif ($entity_id) {
+        $barrio_loc = get_barrio_location($pdo, $entity_id);
+        if ($barrio_loc) {
+            $latitude  = $barrio_loc['latitude'];
+            $longitude = $barrio_loc['longitude'];
+            $location_source = 'barrio';
+        }
+    }
 
     // Most recent fill-related transaction (determines current state)
     $stmt = $pdo->prepare(
@@ -540,6 +577,9 @@ function handle_cube_status(): void {
         'fill_requested'    => $fill_requested,
         'fills_remaining'   => $fills_remaining,
         'credits_remaining' => $credits_remaining,
+        'latitude'          => $latitude,
+        'longitude'         => $longitude,
+        'location_source'   => $location_source,   // null | 'cube' | 'barrio'
     ]);
 }
 
@@ -754,6 +794,45 @@ function handle_release_direction(): void {
     json_ok(['success' => true]);
 }
 
+// ─── GET /admin/fill-requests ─────────────────────────────────────────────────
+// Admin: list all currently pending/partial fill requests across all barrios.
+function handle_admin_list_fill_requests(): void {
+    require_method('GET');
+    require_auth();
+    if (!has_permission('manage_barrios')) {
+        json_error('Forbidden', 403);
+    }
+
+    $stmt = db()->prepare(
+        "SELECT fr.id, fr.entity_id, b.name AS barrio_name,
+                fr.cube_item_id,
+                CASE WHEN fr.cube_item_id IS NOT NULL
+                     THEN CONCAT(t.name, ' #', i.item_number) ELSE NULL END AS cube_label,
+                fr.fills_requested, fr.fills_completed, fr.status,
+                fr.requested_at, u.display_name AS requested_by_name
+         FROM fill_requests fr
+         JOIN barrios b        ON b.id = fr.entity_id
+         LEFT JOIN equipment_items i ON i.id = fr.cube_item_id
+         LEFT JOIN equipment_types t ON t.id = i.equipment_type_id
+         LEFT JOIN users u           ON u.id = fr.requested_by
+         WHERE fr.status IN ('pending', 'partial')
+         ORDER BY fr.requested_at ASC"
+    );
+    $stmt->execute();
+    $rows = $stmt->fetchAll();
+
+    foreach ($rows as &$r) {
+        $r['id']              = (int)$r['id'];
+        $r['entity_id']       = (int)$r['entity_id'];
+        $r['cube_item_id']    = $r['cube_item_id'] !== null ? (int)$r['cube_item_id'] : null;
+        $r['fills_requested'] = (int)$r['fills_requested'];
+        $r['fills_completed'] = (int)$r['fills_completed'];
+    }
+    unset($r);
+
+    json_ok(['requests' => $rows]);
+}
+
 // ─── GET /admin/fill-route/cubes ─────────────────────────────────────────────
 // Admin: list all water cube items for route ordering.
 function handle_admin_fill_route_cubes(): void {
@@ -826,6 +905,56 @@ function handle_admin_save_fill_route(): void {
     }
 
     json_ok(['success' => true, 'saved' => count($ordered)]);
+}
+
+// ─── POST /admin/fill-route/apply-barrio-locations ───────────────────────────
+// Admin: backfill GPS coordinates on water cubes that are already checked out
+// to a barrio but have no coordinates yet, using that barrio's storage location
+// (only when the barrio has exactly one — same rule the checkout flow uses).
+// Never overwrites a cube that already has coordinates.
+function handle_admin_apply_barrio_locations(): void {
+    require_method('POST');
+    require_auth();
+    if (!has_permission('manage_barrios') && !has_permission('manage_equipment')) {
+        json_error('Forbidden', 403);
+    }
+    verify_csrf();
+
+    $pdo = db();
+
+    $stmt = $pdo->prepare(
+        "SELECT i.id, i.current_barrio_id
+         FROM equipment_items i
+         JOIN equipment_types t ON t.id = i.equipment_type_id AND t.category = 'water_cube'
+         WHERE i.current_barrio_id IS NOT NULL AND i.latitude IS NULL"
+    );
+    $stmt->execute();
+    $cubes = $stmt->fetchAll();
+
+    $applied         = 0;
+    $skipped         = 0;
+    $barrio_loc_cache = []; // barrio_id -> location array | null, via get_barrio_location()
+
+    foreach ($cubes as $cube) {
+        $barrio_id = (int)$cube['current_barrio_id'];
+
+        if (!array_key_exists($barrio_id, $barrio_loc_cache)) {
+            $barrio_loc_cache[$barrio_id] = get_barrio_location($pdo, $barrio_id);
+        }
+
+        $loc = $barrio_loc_cache[$barrio_id];
+        if ($loc === null) { $skipped++; continue; }
+
+        $pdo->prepare('UPDATE equipment_items SET latitude = ?, longitude = ? WHERE id = ?')
+            ->execute([$loc['latitude'], $loc['longitude'], $cube['id']]);
+        $applied++;
+    }
+
+    json_ok([
+        'applied'    => $applied,
+        'skipped'    => $skipped,
+        'candidates' => count($cubes),
+    ]);
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────

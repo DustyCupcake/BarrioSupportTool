@@ -605,9 +605,14 @@ function handle_delete_item_photo_gallery(): void {
 // ─── POST /items/location ─────────────────────────────────────────────────────
 // Update the current GPS position of an item. Writes equipment_items.latitude/longitude
 // AND appends an item_deployments row for history.
+//
+// Two ways to be authorized:
+//   - update_item_location: can set the location of any item
+//   - request_fills: a barrio-identify session (see handle_barrio_identify) can set
+//     the location of a water cube currently checked out to its own barrio only
 function handle_update_item_location(): void {
     require_method('POST');
-    $user = require_permission('update_item_location');
+    $user = require_auth();
     verify_csrf();
 
     $b         = body();
@@ -619,10 +624,24 @@ function handle_update_item_location(): void {
         json_error('qr, latitude, and longitude required');
     }
 
-    $stmt = db()->prepare('SELECT id FROM equipment_items WHERE qr_code = ?');
+    $stmt = db()->prepare(
+        'SELECT i.id, i.current_barrio_id, t.category
+         FROM equipment_items i
+         JOIN equipment_types t ON t.id = i.equipment_type_id
+         WHERE i.qr_code = ?'
+    );
     $stmt->execute([$qr]);
     $item = $stmt->fetch();
     if (!$item) json_error('Item not found', 404);
+
+    $can_set_own_cube = has_permission('request_fills')
+        && $item['category'] === 'water_cube'
+        && !empty($user['barrio_id'])
+        && (int)$item['current_barrio_id'] === (int)$user['barrio_id'];
+
+    if (!has_permission('update_item_location') && !$can_set_own_cube) {
+        json_error('Forbidden', 403);
+    }
 
     $item_id = (int)$item['id'];
     $db      = db();
