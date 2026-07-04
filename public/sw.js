@@ -3,7 +3,7 @@
  * Cache version: bump CACHE_VER when deploying CSS/JS changes.
  */
 
-const CACHE_VER  = 'v4';
+const CACHE_VER  = 'v5';
 const CACHE_NAME = 'barrio-' + CACHE_VER;
 
 const APP_SHELL = [
@@ -51,6 +51,11 @@ self.addEventListener('fetch', event => {
 
   // API calls: network only (offline fallback handled by api.js + offline.js)
   if (url.pathname.startsWith('/api/')) return;
+
+  // Admin panel: always network. It isn't part of the offline-first design and
+  // admins need current code/data — caching it here has caused stale-JS bugs
+  // (e.g. a new admin section silently missing until the SW cache was purged).
+  if (url.pathname.startsWith('/admin/') || url.pathname.startsWith('/assets/js/admin/')) return;
 
   // App shell: cache-first with network fallback
   event.respondWith(
