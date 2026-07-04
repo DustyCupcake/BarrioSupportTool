@@ -11,6 +11,7 @@
  */
 
 import { Scanner } from './scanner.js?v=1.0.0';
+import { renderSiteOverlay } from './map-overlay.js?v=1.0.0';
 
 const CLAIM_KEY    = 'fill_claim_id';
 const SANITIZE_KEY = 'fill_pending_sanitizations';
@@ -784,12 +785,10 @@ function toggleMapView() {
 function _ensureMap() {
   if (leafletMap) { leafletMap.invalidateSize(); return; }
   // eslint-disable-next-line no-undef
-  leafletMap = L.map('fr-map', { zoomControl: true });
-  // eslint-disable-next-line no-undef
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    maxZoom: 19,
-  }).addTo(leafletMap);
+  leafletMap = L.map('fr-map', { zoomControl: true, attributionControl: false });
+  // Base tile layer disabled — OSM was returning 403s (referrer required) in this
+  // deployment. The site map KML overlay stands in as the visual reference for now.
+  renderSiteOverlay(leafletMap);
 }
 
 function _stopIcon(status, isNext, routePos) {

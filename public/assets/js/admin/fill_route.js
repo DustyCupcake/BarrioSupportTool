@@ -3,7 +3,8 @@
  * Ordering of water cube stops via drag-and-drop list or click-to-order map, plus credit management.
  */
 
-import { get, put } from '../api.js?v=1.0.1';
+import { get, put }        from '../api.js?v=1.0.1';
+import { renderSiteOverlay } from '../map-overlay.js?v=1.0.0';
 
 let _toast;
 let _onRoute  = [];   // cubes with route_position, sorted
@@ -372,12 +373,10 @@ function moveToEnd(dragId) {
 function ensureMap() {
   if (_map) { _map.invalidateSize(); return; }
   // eslint-disable-next-line no-undef
-  _map = L.map('fr-map', { zoomControl: true });
-  // eslint-disable-next-line no-undef
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-    maxZoom: 19,
-  }).addTo(_map);
+  _map = L.map('fr-map', { zoomControl: true, attributionControl: false });
+  // Base tile layer disabled — OSM was returning 403s (referrer required) in this
+  // deployment. The site map KML overlay stands in as the visual reference for now.
+  renderSiteOverlay(_map);
   _map.on('click', () => {
     if (_anchorId !== null) {
       _anchorId = null;

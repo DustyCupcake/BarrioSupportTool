@@ -95,6 +95,9 @@ $routes = [
     ['POST',   '/fill/sanitize',           'routes/fill_requests.php', 'handle_sanitize'],
     ['GET',    '/barrios/:id/cubes',       'routes/fill_requests.php', 'handle_barrio_cubes'],
 
+    // Site map overlay — read-only reference layer for the Fill Route maps
+    ['GET',    '/map-overlay',             'routes/map_overlay.php',  'handle_get_map_overlay'],
+
     // Persons & account
     ['GET',  '/person-info',         'routes/persons.php',      'handle_person_info'],
     ['GET',  '/persons',             'routes/persons.php',      'handle_person_search'],
@@ -210,6 +213,10 @@ $routes = [
     ['POST', '/admin/sell-fill-credits', 'routes/fill_requests.php', 'handle_sell_fill_credits'],
     ['GET',  '/admin/fill-route/cubes',  'routes/fill_requests.php', 'handle_admin_fill_route_cubes'],
     ['PUT',  '/admin/fill-route/order',  'routes/fill_requests.php', 'handle_admin_save_fill_route'],
+
+    ['GET',    '/admin/map-overlay',     'routes/admin/map_overlay.php', 'handle_admin_get_map_overlay'],
+    ['POST',   '/admin/map-overlay',     'routes/admin/map_overlay.php', 'handle_admin_upload_map_overlay'],
+    ['DELETE', '/admin/map-overlay',     'routes/admin/map_overlay.php', 'handle_admin_delete_map_overlay'],
 
     // Admin — storage locations
     ['GET',    '/admin/storage-locations',          'routes/admin/storage_locations.php', 'handle_list_locations'],
