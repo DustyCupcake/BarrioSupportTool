@@ -36,18 +36,22 @@ let capturedLocation = null;  // { latitude, longitude } from GPS capture during
 // ─── Mode helpers ──────────────────────────────────────────────────────────────
 
 function buildAvailableModes(user) {
-  const perms       = user?.permissions || [];
-  const subEntities = Object.values(user?.dept_sub_entities || {});
-  const modes       = [];
+  const perms        = user?.permissions || [];
+  const isProduction = perms.includes('checkout_equipment');
+  const subEntities   = Object.values(user?.dept_sub_entities || {});
+  const modes        = [];
 
-  if (perms.includes('checkout_equipment')) {
+  if (isProduction) {
     modes.push('dept');
     modes.push('person_prod');
   }
   if (perms.includes('sub_checkout')) {
-    if (subEntities.includes('barrio')) modes.push('sub_barrio');
-    if (subEntities.includes('artist')) modes.push('sub_artist');
-    if (!perms.includes('checkout_equipment')) modes.push('sub_person');
+    // Production-level users can sub-checkout to any barrio/artist directly
+    // (the backend allows this — see $production bypass in handle_sub_checkout),
+    // not just users whose dept membership is barrio/artist-typed.
+    if (isProduction || subEntities.includes('barrio')) modes.push('sub_barrio');
+    if (isProduction || subEntities.includes('artist')) modes.push('sub_artist');
+    if (!isProduction) modes.push('sub_person');
   }
   return modes.length ? modes : ['sub_barrio']; // fallback
 }
