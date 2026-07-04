@@ -82,15 +82,17 @@ function handle_sub_checkout(): void {
     $user = require_permission('sub_checkout');
     verify_csrf();
 
-    $b          = body();
-    $dept_id    = (int)($b['dept_id'] ?? 0);
-    $barrio_id  = isset($b['barrio_id'])  ? (int)$b['barrio_id']  : null;
-    $artist_id  = isset($b['artist_id'])  ? (int)$b['artist_id']  : null;
-    $item_qrs   = $b['item_qrs'] ?? [];
-    $force      = !empty($b['force']);
-    $dept_label = isset($b['dept_label']) ? trim($b['dept_label']) : null;
-    $latitude   = isset($b['latitude'])   ? (float)$b['latitude']  : null;
-    $longitude  = isset($b['longitude'])  ? (float)$b['longitude'] : null;
+    $b                   = body();
+    $dept_id             = (int)($b['dept_id'] ?? 0);
+    $barrio_id           = isset($b['barrio_id'])  ? (int)$b['barrio_id']  : null;
+    $artist_id           = isset($b['artist_id'])  ? (int)$b['artist_id']  : null;
+    $item_qrs            = $b['item_qrs'] ?? [];
+    $force               = !empty($b['force']);
+    $dept_label          = isset($b['dept_label']) ? trim($b['dept_label']) : null;
+    $latitude            = isset($b['latitude'])   ? (float)$b['latitude']  : null;
+    $longitude           = isset($b['longitude'])  ? (float)$b['longitude'] : null;
+    $apply_barrio_location = array_key_exists('apply_barrio_location', $b)
+        ? !empty($b['apply_barrio_location']) : true;
 
     $production = has_permission('checkout_equipment');
 
@@ -103,6 +105,18 @@ function handle_sub_checkout(): void {
 
     if (!$production) {
         require_dept_access($dept_id);
+    }
+
+    // If no explicit GPS was captured, fall back to the barrio's storage location —
+    // but only when it's unambiguous (exactly one location on file for that barrio).
+    $barrio_location_applied = false;
+    if ($barrio_id && $apply_barrio_location && $latitude === null && $longitude === null) {
+        $loc = get_barrio_location(db(), $barrio_id);
+        if ($loc) {
+            $latitude  = $loc['latitude'];
+            $longitude = $loc['longitude'];
+            $barrio_location_applied = true;
+        }
     }
 
     $results = [];
@@ -161,7 +175,10 @@ function handle_sub_checkout(): void {
         json_error('Database error: ' . $e->getMessage(), 500);
     }
 
-    json_ok(['results' => $results]);
+    json_ok([
+        'results'                 => $results,
+        'barrio_location_applied' => $barrio_location_applied,
+    ]);
 }
 
 // Unified check-in: auto-detects whether to do sub_checkin or full checkin

@@ -6,6 +6,7 @@ error_reporting(E_ALL);
 
 require_once __DIR__ . '/lib/db.php';
 require_once __DIR__ . '/lib/response.php';
+require_once __DIR__ . '/lib/barrio_location.php';
 require_once __DIR__ . '/auth.php';
 
 // Naive DATETIME columns (shift windows, invite/token expiry, order deadlines) are entered
@@ -208,8 +209,10 @@ $routes = [
 
     // Admin — fill credits & route ordering
     ['POST', '/admin/sell-fill-credits', 'routes/fill_requests.php', 'handle_sell_fill_credits'],
+    ['GET',  '/admin/fill-requests',     'routes/fill_requests.php', 'handle_admin_list_fill_requests'],
     ['GET',  '/admin/fill-route/cubes',  'routes/fill_requests.php', 'handle_admin_fill_route_cubes'],
     ['PUT',  '/admin/fill-route/order',  'routes/fill_requests.php', 'handle_admin_save_fill_route'],
+    ['POST', '/admin/fill-route/apply-barrio-locations', 'routes/fill_requests.php', 'handle_admin_apply_barrio_locations'],
 
     // Admin — storage locations
     ['GET',    '/admin/storage-locations',          'routes/admin/storage_locations.php', 'handle_list_locations'],

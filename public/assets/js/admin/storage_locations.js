@@ -7,11 +7,12 @@ import { get, post, put, del } from '../api.js?v=1.0.1';
 
 let _toast;
 let _locations = [];
+let _barrios   = [];
 
 export async function initStorageLocations(container, toast) {
   _toast = toast;
   renderShell(container);
-  await load();
+  await Promise.all([load(), loadBarrios()]);
   render();
 }
 
@@ -41,6 +42,15 @@ async function load() {
   }
 }
 
+async function loadBarrios() {
+  try {
+    const data = await get('/admin/barrios');
+    _barrios = data.barrios || [];
+  } catch (e) {
+    _toast('Failed to load barrios: ' + e.message);
+  }
+}
+
 function render() {
   const area   = document.getElementById('sl-table-area');
   if (!area) return;
@@ -59,6 +69,7 @@ function render() {
         <tr>
           <th>Name</th>
           <th>Description</th>
+          <th>Belongs to</th>
           <th>Items here</th>
           <th>GPS</th>
           <th></th>
@@ -69,6 +80,7 @@ function render() {
           <tr>
             <td>${esc(loc.name)}</td>
             <td style="color:var(--text2);font-size:12px">${esc(loc.description || '—')}</td>
+            <td style="color:var(--text2);font-size:12px">${loc.barrio_name ? esc(loc.barrio_name) : '—'}</td>
             <td>${loc.item_count}</td>
             <td style="font-size:12px;color:var(--text3)">${loc.latitude != null
               ? `<a href="https://maps.apple.com/?ll=${loc.latitude},${loc.longitude}" target="_blank" title="${loc.latitude}, ${loc.longitude}">📍</a>`
@@ -103,6 +115,13 @@ function showForm(loc) {
       <div class="field">
         <label>Description (optional)</label>
         <input type="text" id="sl-desc" value="${esc(loc?.description ?? '')}" placeholder="e.g. Board near main gate" maxlength="255">
+      </div>
+      <div class="field">
+        <label>Belongs to (optional)</label>
+        <select id="sl-barrio">
+          <option value="">— none —</option>
+          ${_barrios.map(b => `<option value="${b.id}" ${loc?.barrio_id === b.id ? 'selected' : ''}>${esc(b.name)}</option>`).join('')}
+        </select>
       </div>
       ${loc?.qr_code ? `<div class="hint" style="margin-bottom:.5rem">QR code: <code>${esc(loc.qr_code)}</code></div>` : ''}
 
@@ -146,11 +165,12 @@ function showForm(loc) {
 }
 
 async function save() {
-  const id     = document.getElementById('sl-id')?.value;
-  const name   = document.getElementById('sl-name')?.value.trim();
-  const desc   = document.getElementById('sl-desc')?.value.trim();
-  const latVal = document.getElementById('sl-lat')?.value.trim();
-  const lngVal = document.getElementById('sl-lng')?.value.trim();
+  const id       = document.getElementById('sl-id')?.value;
+  const name     = document.getElementById('sl-name')?.value.trim();
+  const desc     = document.getElementById('sl-desc')?.value.trim();
+  const latVal   = document.getElementById('sl-lat')?.value.trim();
+  const lngVal   = document.getElementById('sl-lng')?.value.trim();
+  const barrioId = document.getElementById('sl-barrio')?.value;
 
   if (!name) { _toast('Name required'); return; }
 
@@ -159,6 +179,7 @@ async function save() {
     description: desc || null,
     latitude:  latVal !== '' ? parseFloat(latVal)  : null,
     longitude: lngVal !== '' ? parseFloat(lngVal)  : null,
+    barrio_id: barrioId ? +barrioId : null,
   };
 
   try {

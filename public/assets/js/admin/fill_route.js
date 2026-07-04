@@ -3,7 +3,7 @@
  * Ordering of water cube stops via drag-and-drop list or click-to-order map, plus credit management.
  */
 
-import { get, put } from '../api.js?v=1.0.1';
+import { get, put, post } from '../api.js?v=1.0.1';
 
 let _toast;
 let _onRoute  = [];   // cubes with route_position, sorted
@@ -39,6 +39,7 @@ function renderShell(container) {
           <button class="fr-view-btn" data-view="map" onclick="window._fr.setView('map')">Map</button>
         </div>
         <button class="btn primary sm" id="fr-save-btn" style="display:none" onclick="window._fr.save()">Save route</button>
+        <button class="btn sm" id="fr-apply-loc-btn" onclick="window._fr.applyBarrioLocations()" title="Fill in GPS coordinates for already-checked-out cubes that don't have any yet, using their barrio's storage location">📍 Apply barrio locations</button>
         <button class="btn sm" onclick="window._fr.reload()">Refresh</button>
       </div>
     </div>
@@ -158,7 +159,31 @@ function renderShell(container) {
     save:    saveRoute,
     reload:  () => { _mapBoundsSet = false; load().then(() => { renderLists(); setDirty(false); }); },
     setView,
+    applyBarrioLocations,
   };
+}
+
+async function applyBarrioLocations() {
+  const btn = document.getElementById('fr-apply-loc-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Applying…'; }
+
+  try {
+    const res = await post('/admin/fill-route/apply-barrio-locations', {});
+    const parts = [`${res.applied} cube${res.applied !== 1 ? 's' : ''} updated`];
+    if (res.skipped) parts.push(`${res.skipped} skipped (no unambiguous barrio location on file)`);
+    _toast(parts.join(' — '));
+
+    if (res.applied) {
+      _mapBoundsSet = false;
+      await load();
+      renderLists();
+      if (_viewMode === 'map') renderMapMarkers();
+    }
+  } catch (e) {
+    _toast('Failed to apply locations: ' + (e.message ?? 'unknown error'));
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '📍 Apply barrio locations'; }
+  }
 }
 
 // ── View mode ─────────────────────────────────────────────────────────────────
