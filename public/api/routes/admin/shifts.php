@@ -17,13 +17,13 @@ function handle_list_shifts(): void {
 
     $stmt = db()->prepare(
         "SELECT s.id, s.name, s.dept_id, d.name AS dept_name,
-                s.barrio_id, b.name AS barrio_name,
+                s.group_id, g.name AS group_name,
                 s.permissions, s.active_from, s.active_until, s.created_at,
                 COUNT(st.id) AS token_count,
                 SUM(st.used_at IS NOT NULL) AS tokens_used
          FROM shifts s
          LEFT JOIN departments d ON d.id = s.dept_id
-         LEFT JOIN barrios b ON b.id = s.barrio_id
+         LEFT JOIN groups g ON g.id = s.group_id
          LEFT JOIN shift_tokens st ON st.shift_id = s.id
          $where
          GROUP BY s.id
@@ -50,8 +50,8 @@ function handle_create_shift(): void {
 
     $b           = body();
     $name        = trim($b['name'] ?? '');
-    $dept_id     = isset($b['dept_id'])   ? (int)$b['dept_id']   : null;
-    $barrio_id   = isset($b['barrio_id']) ? (int)$b['barrio_id'] : null;
+    $dept_id     = isset($b['dept_id'])  ? (int)$b['dept_id']  : null;
+    $group_id    = isset($b['group_id']) ? (int)$b['group_id'] : null;
     $permissions = $b['permissions'] ?? [];
     $active_from = trim($b['active_from'] ?? '');
     $active_until = trim($b['active_until'] ?? '');
@@ -74,9 +74,9 @@ function handle_create_shift(): void {
     }
 
     db()->prepare(
-        'INSERT INTO shifts (name, dept_id, barrio_id, permissions, active_from, active_until, created_by)
+        'INSERT INTO shifts (name, dept_id, group_id, permissions, active_from, active_until, created_by)
          VALUES (?, ?, ?, ?, ?, ?, ?)'
-    )->execute([$name, $dept_id, $barrio_id, json_encode($permissions), $active_from, $active_until, $user['id']]);
+    )->execute([$name, $dept_id, $group_id, json_encode($permissions), $active_from, $active_until, $user['id']]);
 
     $id = (int)db()->lastInsertId();
     json_ok(['id' => $id], 201);
@@ -120,9 +120,9 @@ function handle_update_shift(): void {
         $sets[]   = 'dept_id = ?';
         $params[] = $b['dept_id'] ? (int)$b['dept_id'] : null;
     }
-    if (isset($b['barrio_id'])) {
-        $sets[]   = 'barrio_id = ?';
-        $params[] = $b['barrio_id'] ? (int)$b['barrio_id'] : null;
+    if (isset($b['group_id'])) {
+        $sets[]   = 'group_id = ?';
+        $params[] = $b['group_id'] ? (int)$b['group_id'] : null;
     }
 
     if (empty($sets)) json_error('Nothing to update');

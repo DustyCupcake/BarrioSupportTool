@@ -10,7 +10,7 @@ function handle_list_person_tokens(): void {
                 pt.user_id,
                 COUNT(ei.id) AS active_items
          FROM person_tokens pt
-         LEFT JOIN equipment_items ei ON ei.current_person_id = pt.user_id
+         LEFT JOIN equipment_items ei ON ei.holder_type = \'person\' AND ei.holder_id = pt.user_id
          GROUP BY pt.id
          ORDER BY pt.created_at DESC, pt.id DESC'
     );
@@ -80,7 +80,7 @@ function handle_delete_person_token(): void {
     $stmt = db()->prepare(
         'SELECT pt.id, pt.user_id, pt.claimed_at, COUNT(ei.id) AS active_items
          FROM person_tokens pt
-         LEFT JOIN equipment_items ei ON ei.current_person_id = pt.user_id
+         LEFT JOIN equipment_items ei ON ei.holder_type = \'person\' AND ei.holder_id = pt.user_id
          WHERE pt.id = ?
          GROUP BY pt.id'
     );
@@ -98,7 +98,7 @@ function handle_delete_person_token(): void {
         // Deactivate the minimal user account (if person-only, no transaction history outside items)
         if ($tok['user_id'] && $tok['claimed_at'] !== null) {
             $history_stmt = $pdo->prepare(
-                'SELECT COUNT(*) FROM transactions WHERE person_id = ?'
+                "SELECT COUNT(*) FROM transactions WHERE holder_type = 'person' AND holder_id = ?"
             );
             $history_stmt->execute([$tok['user_id']]);
             $history_count = (int)$history_stmt->fetchColumn();

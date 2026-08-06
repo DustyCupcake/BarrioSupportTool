@@ -4,8 +4,7 @@
  */
 
 import { get, setCsrf }          from '../api.js?v=1.0.1';
-import { initBarrios }           from './barrios.js?v=1.1.0';
-import { initArtists }           from './artists.js?v=1.0.0';
+import { initGroups }            from './groups.js?v=1.0.0';
 import { initEquipment }         from './equipment.js?v=1.0.3';
 import { initUsers }             from './users.js?v=1.1.0';
 import { initTeams }             from './teams.js?v=1.1.0';
@@ -26,8 +25,7 @@ let _perms     = [];
 
 // Sections and the permission required to see them (any match → show)
 const SECTION_PERMS = {
-  barrios:            ['manage_barrios'],
-  artists:            ['manage_artists'],
+  groups:             ['manage_groups'],
   equipment:          ['manage_equipment'],
   users:              ['manage_users', 'manage_dept_users'],
   teams:              ['manage_departments'],
@@ -36,11 +34,11 @@ const SECTION_PERMS = {
   orders:             ['manage_orders'],
   'storage-locations': ['manage_equipment'],
   'person-badges':     ['manage_users'],
-  'fill-requests':     ['manage_barrios'],
-  'fill-route':        ['manage_barrios', 'manage_equipment'],
-  'site-map':          ['manage_barrios', 'manage_equipment'],
+  'fill-requests':     ['manage_groups'],
+  'fill-route':        ['manage_groups', 'manage_equipment'],
+  'site-map':          ['manage_groups', 'manage_equipment'],
   'print-templates':   ['manage_equipment'],
-  'reset':             ['manage_equipment', 'manage_barrios'],
+  'reset':             ['manage_equipment', 'manage_groups'],
 };
 
 export function toast(msg, duration = 3500) {
@@ -109,7 +107,7 @@ async function boot() {
 
   // Default to first section this user can access
   const defaultSection = Object.keys(SECTION_PERMS)
-    .find(s => (SECTION_PERMS[s] ?? []).some(p => _perms.includes(p))) ?? 'barrios';
+    .find(s => (SECTION_PERMS[s] ?? []).some(p => _perms.includes(p))) ?? 'groups';
   const section = location.hash.replace('#', '') || defaultSection;
   navigate(section);
 }
@@ -124,8 +122,7 @@ function navigate(section) {
   if (!content) return;
 
   switch (section) {
-    case 'barrios':            initBarrios(content, toast);             break;
-    case 'artists':            initArtists(content, toast, _user);      break;
+    case 'groups':             initGroups(content, toast, _user);       break;
     case 'equipment':          initEquipment(content, toast);           break;
     case 'users':              initUsers(content, toast, _user);        break;
     case 'teams':              initTeams(content, toast);               break;
@@ -140,7 +137,7 @@ function navigate(section) {
     case 'print-templates':    initPrintTemplates(content, toast);      break;
     case 'reset':              initReset(content, toast);               break;
     default:            navigate(
-      Object.keys(SECTION_PERMS).find(s => SECTION_PERMS[s].some(p => _perms.includes(p))) ?? 'barrios'
+      Object.keys(SECTION_PERMS).find(s => SECTION_PERMS[s].some(p => _perms.includes(p))) ?? 'groups'
     );
   }
 }

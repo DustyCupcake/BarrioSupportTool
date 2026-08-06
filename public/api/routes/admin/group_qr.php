@@ -1,33 +1,33 @@
 <?php
 declare(strict_types=1);
 
-function handle_barrio_qr(): void {
+function handle_group_qr(): void {
     require_method('GET');
-    require_admin();
+    require_manage_users();
 
     $id = (int)($_GET['id'] ?? 0);
     if (!$id) {
-        json_error('Missing barrio id', 400);
+        json_error('Missing group id', 400);
     }
 
-    $stmt = db()->prepare('SELECT id, name, qr_code FROM barrios WHERE id = ? LIMIT 1');
+    $stmt = db()->prepare('SELECT id, name, qr_code FROM groups WHERE id = ? LIMIT 1');
     $stmt->execute([$id]);
-    $barrio = $stmt->fetch();
+    $group = $stmt->fetch();
 
-    if (!$barrio) {
-        json_error('Barrio not found', 404);
+    if (!$group) {
+        json_error('Group not found', 404);
     }
 
     // Ensure qr_code exists (backfill if missing from pre-migration rows)
-    if (empty($barrio['qr_code'])) {
+    if (empty($group['qr_code'])) {
         $qr_code = bin2hex(random_bytes(12));
-        db()->prepare('UPDATE barrios SET qr_code = ? WHERE id = ?')->execute([$qr_code, $barrio['id']]);
-        $barrio['qr_code'] = $qr_code;
+        db()->prepare('UPDATE groups SET qr_code = ? WHERE id = ?')->execute([$qr_code, $group['id']]);
+        $group['qr_code'] = $qr_code;
     }
 
     $scheme    = (!empty($_SERVER['HTTPS']) && $_SERVER['HTTPS'] !== 'off') ? 'https' : 'http';
     $host      = $_SERVER['HTTP_HOST'];
-    $deep_link = $scheme . '://' . $host . '/scan?qr=' . rawurlencode($barrio['qr_code']);
+    $deep_link = $scheme . '://' . $host . '/scan?qr=' . rawurlencode($group['qr_code']);
 
     $use_lib = file_exists(__DIR__ . '/../../../assets/vendor/phpqrcode/qrlib.php');
     if ($use_lib) {
@@ -40,7 +40,7 @@ function handle_barrio_qr(): void {
         $src = 'https://api.qrserver.com/v1/create-qr-code/?size=400x400&data=' . urlencode($deep_link);
     }
 
-    $name_esc = htmlspecialchars($barrio['name'], ENT_QUOTES, 'UTF-8');
+    $name_esc = htmlspecialchars($group['name'], ENT_QUOTES, 'UTF-8');
     $link_esc = htmlspecialchars($deep_link, ENT_QUOTES, 'UTF-8');
 
     header('Content-Type: text/html; charset=utf-8');
@@ -50,7 +50,7 @@ function handle_barrio_qr(): void {
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<title>Barrio QR — ' . $name_esc . '</title>
+<title>Group QR — ' . $name_esc . '</title>
 <style>
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: Arial, sans-serif; background: #fff; }

@@ -1,6 +1,6 @@
 /**
  * Admin Shifts section.
- * Create/edit shifts (name, dept/barrio scope, permission set, time window),
+ * Create/edit shifts (name, dept/group scope, permission set, time window),
  * generate QR login tokens, print the token QR sheet.
  */
 
@@ -10,7 +10,7 @@ const PERMISSION_OPTIONS = [
   'checkout_equipment', 'checkin_equipment',
   'sub_checkout', 'sub_checkin',
   'validate_vouchers',
-  'view_inventory', 'view_dept_inventory', 'view_barrios', 'view_artists',
+  'view_inventory', 'view_dept_inventory', 'view_groups',
   'manage_equipment', 'manage_consumables',
   'create_invites', 'submit_orders', 'label_equipment',
   'request_fills', 'fill_truck', 'update_item_location',
@@ -20,7 +20,7 @@ const PERMISSION_OPTIONS = [
 let _toast    = null;
 let _shifts   = [];
 let _depts    = [];
-let _barrios  = [];
+let _groups   = [];
 let _ownPerms = new Set();
 let _expandedShiftId = null;
 let _tokensCache     = {};
@@ -32,7 +32,7 @@ export async function initShifts(container, toast, user) {
   _expandedShiftId = null;
   _tokensCache = {};
   renderShell(container);
-  await Promise.all([loadShifts(), loadDepts(), loadBarrios()]);
+  await Promise.all([loadShifts(), loadDepts(), loadGroups()]);
 }
 
 async function loadShifts() {
@@ -50,10 +50,10 @@ async function loadDepts() {
   } catch (e) { _toast('Error: ' + e.message); }
 }
 
-async function loadBarrios() {
+async function loadGroups() {
   try {
-    const data = await get('/admin/barrios');
-    _barrios = data.barrios || [];
+    const data = await get('/admin/groups');
+    _groups = data.groups || [];
   } catch (e) { _toast('Error: ' + e.message); }
 }
 
@@ -94,7 +94,7 @@ function renderList() {
         ${_shifts.map(s => `
           <tr>
             <td>${esc(s.name)}</td>
-            <td style="font-size:12px;color:var(--text3)">${esc(s.dept_name || s.barrio_name || '—')}</td>
+            <td style="font-size:12px;color:var(--text3)">${esc(s.dept_name || s.group_name || '—')}</td>
             <td style="font-size:12px;color:var(--text3)">${fmtWindow(s.active_from, s.active_until)}</td>
             <td>${s.tokens_used}/${s.token_count}</td>
             <td style="white-space:nowrap">
@@ -131,8 +131,8 @@ function renderForm(shift) {
 
   const deptOptions = _depts.map(d =>
     `<option value="${d.id}" ${shift?.dept_id === d.id ? 'selected' : ''}>${esc(d.name)}</option>`).join('');
-  const barrioOptions = _barrios.map(b =>
-    `<option value="${b.id}" ${shift?.barrio_id === b.id ? 'selected' : ''}>${esc(b.name)}</option>`).join('');
+  const groupOptions = _groups.map(g =>
+    `<option value="${g.id}" ${shift?.group_id === g.id ? 'selected' : ''}>${esc(g.name)}</option>`).join('');
 
   const selectedPerms = new Set(shift?.permissions || []);
   const editablePerms = PERMISSION_OPTIONS.filter(p => _ownPerms.has(p));
@@ -157,10 +157,10 @@ function renderForm(shift) {
           </select>
         </div>
         <div class="field">
-          <label>Barrio scope <span style="color:var(--text3);font-weight:400">(optional)</span></label>
-          <select id="sf-barrio">
+          <label>Group scope <span style="color:var(--text3);font-weight:400">(optional)</span></label>
+          <select id="sf-group">
             <option value="">None</option>
-            ${barrioOptions}
+            ${groupOptions}
           </select>
         </div>
       </div>
@@ -204,7 +204,7 @@ async function saveShift() {
   const id       = document.getElementById('sf-id').value;
   const name     = document.getElementById('sf-name').value.trim();
   const deptId   = document.getElementById('sf-dept').value;
-  const barrioId = document.getElementById('sf-barrio').value;
+  const groupId  = document.getElementById('sf-group').value;
   const from     = document.getElementById('sf-from').value;
   const until    = document.getElementById('sf-until').value;
   const lockedPerms = (document.getElementById('sf-locked-perms').value || '').split(',').filter(Boolean);
@@ -222,7 +222,7 @@ async function saveShift() {
   const payload = {
     name,
     dept_id: deptId ? +deptId : null,
-    barrio_id: barrioId ? +barrioId : null,
+    group_id: groupId ? +groupId : null,
     permissions: perms,
     active_from: from.replace('T', ' '),
     active_until: until.replace('T', ' '),

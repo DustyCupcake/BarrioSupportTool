@@ -17,7 +17,7 @@ function handle_item_info(): void {
     }
 
     $stmt = db()->prepare(
-        'SELECT i.status, i.current_barrio_id, t.secure_qr, t.is_crate, t.deployment_destination,
+        'SELECT i.status, i.holder_type, i.holder_id, t.secure_qr, t.is_crate, t.deployment_destination,
                 t.category,
                 CONCAT(t.name, \' #\', i.item_number) AS display_name,
                 t.name AS type_name
@@ -48,6 +48,6 @@ function handle_item_info(): void {
         'is_crate'               => (bool) $item['is_crate'],
         'deployment_destination' => $item['deployment_destination'],
         'status'                 => $status_label,
-        'current_barrio_id'      => $item['current_barrio_id'] ? (int)$item['current_barrio_id'] : null,
+        'current_group_id'       => ($item['holder_type'] === 'group' && $item['holder_id']) ? (int)$item['holder_id'] : null,
     ]);
 }

@@ -8,7 +8,7 @@ function handle_list_departments_admin(): void {
     $rows = db()->query(
         'SELECT d.id, d.name,
                 IFNULL(d.qr_code, "") AS qr_code,
-                d.slug, d.sub_entity, d.sort_order, d.is_active, d.created_at,
+                d.slug, d.manages_groups, d.sort_order, d.is_active, d.created_at,
                 COUNT(DISTINCT udr.user_id) AS member_count
          FROM departments d
          LEFT JOIN user_dept_roles udr ON udr.dept_id = d.id
@@ -17,10 +17,11 @@ function handle_list_departments_admin(): void {
     )->fetchAll();
 
     foreach ($rows as &$r) {
-        $r['id']           = (int)$r['id'];
-        $r['sort_order']   = (int)$r['sort_order'];
-        $r['is_active']    = (bool)$r['is_active'];
-        $r['member_count'] = (int)$r['member_count'];
+        $r['id']             = (int)$r['id'];
+        $r['sort_order']     = (int)$r['sort_order'];
+        $r['is_active']      = (bool)$r['is_active'];
+        $r['member_count']   = (int)$r['member_count'];
+        $r['manages_groups'] = (bool)$r['manages_groups'];
     }
     unset($r);
 
@@ -32,11 +33,11 @@ function handle_create_department(): void {
     require_permission('manage_departments');
     verify_csrf();
 
-    $b          = body();
-    $name       = trim($b['name'] ?? '');
-    $slug       = trim($b['slug'] ?? '');
-    $sub_entity = $b['sub_entity'] ?? 'none';
-    $sort_order = (int)($b['sort_order'] ?? 0);
+    $b              = body();
+    $name           = trim($b['name'] ?? '');
+    $slug           = trim($b['slug'] ?? '');
+    $manages_groups = !empty($b['manages_groups']) ? 1 : 0;
+    $sort_order     = (int)($b['sort_order'] ?? 0);
 
     if ($name === '' || $slug === '') {
         json_error('name and slug required');
@@ -44,23 +45,20 @@ function handle_create_department(): void {
     if (!preg_match('/^[a-z0-9_]+$/', $slug)) {
         json_error('slug must be lowercase letters, digits, and underscores only');
     }
-    if (!in_array($sub_entity, ['barrio', 'artist', 'none'], true)) {
-        json_error('sub_entity must be barrio, artist, or none');
-    }
 
     $qr_code = bin2hex(random_bytes(12));
 
     try {
         db()->prepare(
-            'INSERT INTO departments (name, qr_code, slug, sub_entity, sort_order) VALUES (?, ?, ?, ?, ?)'
-        )->execute([$name, $qr_code, $slug, $sub_entity, $sort_order]);
+            'INSERT INTO departments (name, qr_code, slug, manages_groups, sort_order) VALUES (?, ?, ?, ?, ?)'
+        )->execute([$name, $qr_code, $slug, $manages_groups, $sort_order]);
         $id = (int)db()->lastInsertId();
     } catch (PDOException $e) {
         if (str_contains($e->getMessage(), 'Duplicate')) json_error('Name or slug already exists', 409);
         throw $e;
     }
 
-    json_ok(['id' => $id, 'name' => $name, 'qr_code' => $qr_code, 'slug' => $slug, 'sub_entity' => $sub_entity], 201);
+    json_ok(['id' => $id, 'name' => $name, 'qr_code' => $qr_code, 'slug' => $slug, 'manages_groups' => (bool)$manages_groups], 201);
 }
 
 function handle_update_department(): void {
@@ -75,14 +73,17 @@ function handle_update_department(): void {
     $sets   = [];
     $params = [];
 
-    foreach (['name', 'slug', 'sub_entity'] as $f) {
+    foreach (['name', 'slug'] as $f) {
         if (isset($b[$f]) && trim($b[$f]) !== '') {
             $sets[]   = "$f = ?";
             $params[] = trim($b[$f]);
         }
     }
-    if (isset($b['sort_order'])) { $sets[] = 'sort_order = ?'; $params[] = (int)$b['sort_order']; }
-    if (isset($b['is_active']))  { $sets[] = 'is_active = ?';  $params[] = $b['is_active'] ? 1 : 0; }
+    if (isset($b['sort_order']))     { $sets[] = 'sort_order = ?';     $params[] = (int)$b['sort_order']; }
+    if (isset($b['is_active']))      { $sets[] = 'is_active = ?';      $params[] = $b['is_active'] ? 1 : 0; }
+    if (array_key_exists('manages_groups', $b)) {
+        $sets[] = 'manages_groups = ?'; $params[] = !empty($b['manages_groups']) ? 1 : 0;
+    }
 
     if (empty($sets)) json_error('Nothing to update');
 
@@ -111,7 +112,7 @@ function handle_delete_department(): void {
     }
 
     $itm_stmt = db()->prepare(
-        'SELECT COUNT(*) FROM equipment_items WHERE current_dept_id = ?'
+        'SELECT COUNT(*) FROM equipment_items WHERE owning_dept_id = ?'
     );
     $itm_stmt->execute([$id]);
     $items = (int)$itm_stmt->fetchColumn();

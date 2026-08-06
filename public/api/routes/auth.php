@@ -32,9 +32,9 @@ function handle_login(): void {
 
     db()->prepare('UPDATE users SET last_login = NOW() WHERE id = ?')->execute([$user['id']]);
 
-    // Load dept memberships with sub_entity info
+    // Load dept memberships with manages_groups info
     $dept_stmt = db()->prepare(
-        'SELECT udr.dept_id, udr.role, d.sub_entity, d.name AS dept_name
+        'SELECT udr.dept_id, udr.role, d.manages_groups, d.name AS dept_name
          FROM user_dept_roles udr
          JOIN departments d ON d.id = udr.dept_id
          WHERE udr.user_id = ?'
@@ -42,12 +42,12 @@ function handle_login(): void {
     $dept_stmt->execute([$user['id']]);
     $memberships = $dept_stmt->fetchAll();
 
-    $dept_ids         = array_column($memberships, 'dept_id');
-    $dept_roles       = [];
-    $dept_sub_entities = [];
+    $dept_ids            = array_column($memberships, 'dept_id');
+    $dept_roles          = [];
+    $dept_manages_groups = [];
     foreach ($memberships as $m) {
-        $dept_roles[(int)$m['dept_id']]       = $m['role'];
-        $dept_sub_entities[(int)$m['dept_id']] = $m['sub_entity'];
+        $dept_roles[(int)$m['dept_id']]          = $m['role'];
+        $dept_manages_groups[(int)$m['dept_id']] = (bool)$m['manages_groups'];
     }
 
     // Load per-user permission overrides
@@ -60,35 +60,35 @@ function handle_login(): void {
     $qr_token = ensure_user_qr_token((int)$user['id']);
     $csrf     = bin2hex(random_bytes(32));
     $_SESSION = [
-        'user_id'           => (int)$user['id'],
-        'username'          => $user['username'],
-        'display_name'      => $user['display_name'],
-        'role'              => $user['role'],
-        'dept_ids'          => array_map('intval', $dept_ids),
-        'dept_roles'        => $dept_roles,
-        'dept_sub_entities' => $dept_sub_entities,
-        'permissions'       => $permissions,
-        'language'          => $user['language'] ?? 'en',
-        'is_shift'          => false,
-        'shift_id'          => null,
-        'shift_name'        => null,
-        'qr_token'          => $qr_token,
-        'csrf_token'        => $csrf,
+        'user_id'             => (int)$user['id'],
+        'username'            => $user['username'],
+        'display_name'        => $user['display_name'],
+        'role'                => $user['role'],
+        'dept_ids'            => array_map('intval', $dept_ids),
+        'dept_roles'          => $dept_roles,
+        'dept_manages_groups' => $dept_manages_groups,
+        'permissions'         => $permissions,
+        'language'            => $user['language'] ?? 'en',
+        'is_shift'            => false,
+        'shift_id'            => null,
+        'shift_name'          => null,
+        'qr_token'            => $qr_token,
+        'csrf_token'          => $csrf,
     ];
 
     json_ok([
-        'id'                => (int)$user['id'],
-        'username'          => $user['username'],
-        'display_name'      => $user['display_name'],
-        'role'              => $user['role'],
-        'dept_ids'          => $_SESSION['dept_ids'],
-        'dept_roles'        => $_SESSION['dept_roles'],
-        'dept_sub_entities' => $dept_sub_entities,
-        'permissions'       => $permissions,
-        'language'          => $_SESSION['language'],
-        'is_shift'          => false,
-        'qr_token'          => $qr_token,
-        'csrf_token'        => $csrf,
+        'id'                  => (int)$user['id'],
+        'username'            => $user['username'],
+        'display_name'        => $user['display_name'],
+        'role'                => $user['role'],
+        'dept_ids'            => $_SESSION['dept_ids'],
+        'dept_roles'          => $_SESSION['dept_roles'],
+        'dept_manages_groups' => $dept_manages_groups,
+        'permissions'         => $permissions,
+        'language'            => $_SESSION['language'],
+        'is_shift'            => false,
+        'qr_token'            => $qr_token,
+        'csrf_token'          => $csrf,
     ]);
 }
 
@@ -278,7 +278,7 @@ function handle_shift_login(): void {
 
     $stmt = db()->prepare(
         'SELECT st.id, st.shift_id,
-                s.name AS shift_name, s.permissions, s.dept_id, s.barrio_id,
+                s.name AS shift_name, s.permissions, s.dept_id, s.group_id,
                 s.active_from, s.active_until
          FROM shift_tokens st
          JOIN shifts s ON s.id = st.shift_id
@@ -299,7 +299,7 @@ function handle_shift_login(): void {
     $perms = json_decode($tok['permissions'], true) ?: [];
     $csrf  = bin2hex(random_bytes(32));
 
-    $barrio_id = $tok['barrio_id'] ? (int)$tok['barrio_id'] : null;
+    $group_id = $tok['group_id'] ? (int)$tok['group_id'] : null;
 
     session_regenerate_id(true);
     $_SESSION = [
@@ -314,7 +314,7 @@ function handle_shift_login(): void {
         'is_shift'     => true,
         'shift_id'     => (int)$tok['shift_id'],
         'shift_name'   => $tok['shift_name'],
-        'barrio_id'    => $barrio_id,
+        'group_id'     => $group_id,
         'csrf_token'   => $csrf,
     ];
 
@@ -323,14 +323,15 @@ function handle_shift_login(): void {
         'permissions'  => $perms,
         'is_shift'     => true,
         'shift_name'   => $tok['shift_name'],
-        'barrio_id'    => $barrio_id,
+        'group_id'     => $group_id,
+        'barrio_id'    => $group_id,
         'csrf_token'   => $csrf,
     ]);
 }
 
-// ─── Barrio self-identify session ─────────────────────────────────────────────
-// Lets anyone who can see a barrio's own QR badge get a lightweight session
-// scoped to that barrio (request_fills only), so they can request water fills
+// ─── Group self-identify session ──────────────────────────────────────────────
+// Lets anyone who can see a group's own QR badge get a lightweight session
+// scoped to that group (request_fills only), so they can request water fills
 // from the public cube page without a full staff login or an admin-issued
 // shift token.
 function handle_barrio_identify(): void {
@@ -338,21 +339,21 @@ function handle_barrio_identify(): void {
     start_session();
 
     $b  = body();
-    $qr = trim($b['barrio_qr'] ?? '');
+    $qr = trim($b['barrio_qr'] ?? $b['group_qr'] ?? '');
     if ($qr === '') json_error('barrio_qr required', 400);
 
-    $stmt = db()->prepare('SELECT id, name FROM barrios WHERE qr_code = ?');
+    $stmt = db()->prepare('SELECT id, name FROM groups WHERE qr_code = ?');
     $stmt->execute([$qr]);
-    $barrio = $stmt->fetch();
+    $group = $stmt->fetch();
 
-    if (!$barrio) json_error('Barrio QR not recognised', 404);
+    if (!$group) json_error('Group QR not recognised', 404);
 
     $csrf = bin2hex(random_bytes(32));
     session_regenerate_id(true);
     $_SESSION = [
         'user_id'      => null,
         'username'     => null,
-        'display_name' => $barrio['name'],
+        'display_name' => $group['name'],
         'role'         => null,
         'dept_ids'     => [],
         'dept_roles'   => [],
@@ -361,14 +362,16 @@ function handle_barrio_identify(): void {
         'is_shift'     => true,
         'shift_id'     => null,
         'shift_name'   => null,
-        'barrio_id'    => (int)$barrio['id'],
+        'group_id'     => (int)$group['id'],
         'csrf_token'   => $csrf,
     ];
 
     json_ok([
         'success'     => true,
-        'barrio_id'   => (int)$barrio['id'],
-        'barrio_name' => $barrio['name'],
+        'group_id'    => (int)$group['id'],
+        'group_name'  => $group['name'],
+        'barrio_id'   => (int)$group['id'],
+        'barrio_name' => $group['name'],
         'permissions' => ['request_fills'],
         'csrf_token'  => $csrf,
     ]);
@@ -496,7 +499,7 @@ function handle_person_claim(): void {
         'role'              => 'person',
         'dept_ids'          => [],
         'dept_roles'        => [],
-        'dept_sub_entities' => (object)[],
+        'dept_manages_groups' => (object)[],
         'permissions'       => ['checkin_equipment', 'person_borrow'],
         'language'          => 'en',
         'is_shift'          => false,
@@ -553,7 +556,7 @@ function handle_person_login(): void {
         'role'              => 'person',
         'dept_ids'          => [],
         'dept_roles'        => [],
-        'dept_sub_entities' => (object)[],
+        'dept_manages_groups' => (object)[],
         'permissions'       => ['checkin_equipment', 'person_borrow'],
         'language'          => 'en',
         'is_shift'          => false,

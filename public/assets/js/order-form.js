@@ -66,10 +66,10 @@ function renderDeptTable(container, orders, deptId) {
   };
 
   const user = getCurrentUser();
-  const subEntities = user?.dept_sub_entities || {};
-  const isBarrioSupport = Object.values(subEntities).includes('barrio');
-  const prefillBtn = isBarrioSupport
-    ? `<button class="btn ghost" id="orders-prefill-btn" style="margin-bottom:.75rem;font-size:13px">Pre-fill from barrio orders</button>`
+  const managesGroups = user?.dept_manages_groups || {};
+  const isGroupSupport = Object.values(managesGroups).some(Boolean);
+  const prefillBtn = isGroupSupport
+    ? `<button class="btn ghost" id="orders-prefill-btn" style="margin-bottom:.75rem;font-size:13px">Pre-fill from group orders</button>`
     : '';
 
   body.innerHTML = `
@@ -107,9 +107,9 @@ function renderDeptTable(container, orders, deptId) {
         const tid = +inp.dataset.typeId;
         if (totals[tid] != null) inp.value = totals[tid];
       });
-      toast('Pre-filled from barrio orders');
+      toast('Pre-filled from group orders');
     } catch (e) {
-      toast('Could not load barrio orders: ' + e.message);
+      toast('Could not load group orders: ' + e.message);
     }
   });
 }

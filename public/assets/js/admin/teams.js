@@ -53,12 +53,12 @@ function renderDeptList() {
 
   area.innerHTML = `
     <table class="data-table">
-      <thead><tr><th>Team</th><th>Sub-entity</th><th>Members</th><th></th></tr></thead>
+      <thead><tr><th>Team</th><th>Manages groups</th><th>Members</th><th></th></tr></thead>
       <tbody>
         ${_depts.map(d => `
           <tr>
             <td>${esc(d.name)}</td>
-            <td style="font-size:12px;color:var(--text3)">${esc(d.sub_entity || '—')}</td>
+            <td style="font-size:12px;color:var(--text3)">${d.manages_groups ? 'Yes' : '—'}</td>
             <td>${d.member_count}</td>
             <td style="white-space:nowrap">
               <button class="btn sm" onclick="window._teams.toggleDept(${d.id})">
@@ -111,13 +111,10 @@ function renderTeamForm(dept) {
         </div>
       </div>
       <div class="form-row">
-        <div class="field">
-          <label>Sub-entity type</label>
-          <select id="tf-sub">
-            <option value="none"   ${(dept?.sub_entity ?? 'none') === 'none'   ? 'selected' : ''}>None</option>
-            <option value="barrio" ${dept?.sub_entity === 'barrio' ? 'selected' : ''}>Barrio</option>
-            <option value="artist" ${dept?.sub_entity === 'artist' ? 'selected' : ''}>Artist</option>
-          </select>
+        <div class="field" style="display:flex;align-items:center;gap:8px">
+          <input type="checkbox" id="tf-manages-groups" style="width:auto;margin:0"
+            ${dept?.manages_groups ? 'checked' : ''}>
+          <label for="tf-manages-groups" style="margin:0">Manages groups</label>
         </div>
         <div class="field">
           <label>Sort order</label>
@@ -142,11 +139,11 @@ function autoSlug(name) {
 }
 
 async function saveTeam() {
-  const id         = document.getElementById('tf-id').value;
-  const name       = document.getElementById('tf-name').value.trim();
-  const slug       = document.getElementById('tf-slug').value.trim();
-  const sub_entity = document.getElementById('tf-sub').value;
-  const sort_order = parseInt(document.getElementById('tf-sort').value, 10) || 0;
+  const id             = document.getElementById('tf-id').value;
+  const name           = document.getElementById('tf-name').value.trim();
+  const slug           = document.getElementById('tf-slug').value.trim();
+  const manages_groups = document.getElementById('tf-manages-groups').checked;
+  const sort_order     = parseInt(document.getElementById('tf-sort').value, 10) || 0;
 
   if (!name) { _toast('Name required'); return; }
   if (!slug)  { _toast('Slug required'); return; }
@@ -154,10 +151,10 @@ async function saveTeam() {
 
   try {
     if (id) {
-      await put('/admin/departments', { id: +id, name, slug, sub_entity, sort_order });
+      await put('/admin/departments', { id: +id, name, slug, manages_groups, sort_order });
       _toast('Team updated');
     } else {
-      await post('/admin/departments', { name, slug, sub_entity, sort_order });
+      await post('/admin/departments', { name, slug, manages_groups, sort_order });
       _toast('Team created');
     }
     closeTeamForm();

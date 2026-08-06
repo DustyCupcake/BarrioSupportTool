@@ -1,17 +1,15 @@
 import { get, post, setCsrf } from './api.js?v=1.0.1';
-import { initOfflineSync } from './offline.js?v=1.0.0';
-import { init as initCheckout } from './checkout.js?v=1.0.4';
-import { init as initCheckin, destroy as destroyCheckin } from './checkin.js?v=1.0.2';
-import { init as initBarrios, destroy as destroyBarrios } from './barrios.js?v=1.0.2';
-import { init as initInventory } from './inventory.js?v=1.0.0';
+import { initOfflineSync } from './offline.js?v=1.0.1';
+import { init as initGroups, destroy as destroyGroups } from './groups.js?v=1.0.3';
+import { init as initInventory } from './inventory.js?v=1.0.1';
 import { init as initHistory } from './history.js?v=1.0.0';
-import { init as initValidate, destroy as destroyValidate } from './validate.js?v=1.0.1';
-import { init as initOrders } from './order-form.js?v=1.0.1';
-import { init as initHome } from './home.js?v=1.0.1';
-import { init as initScanner, destroy as destroyScanner, getSession } from './unified-scanner.js?v=1.0.4';
-import { initLang, applyTranslations, renderSwitcher, onLangChange, setLang, getLang } from './i18n.js?v=1.0.1';
+import { init as initValidate, destroy as destroyValidate } from './validate.js?v=1.0.2';
+import { init as initOrders } from './order-form.js?v=1.0.2';
+import { init as initHome } from './home.js?v=1.0.2';
+import { init as initScanner, destroy as destroyScanner, getSession } from './unified-scanner.js?v=1.0.5';
+import { initLang, applyTranslations, renderSwitcher, onLangChange, setLang, getLang } from './i18n.js?v=1.0.2';
 import { init as initAccount } from './account.js?v=1.0.1';
-import { init as initFillRequests, destroy as destroyFillRequests } from './fill-requests.js?v=1.0.0';
+import { init as initFillRequests, destroy as destroyFillRequests } from './fill-requests.js?v=1.0.1';
 
 // Pending identity action — stored while the identity prompt is shown
 let _pendingIdentityAction = null;
@@ -139,7 +137,7 @@ async function boot() {
 
   // Handle deep-link params
   const params   = new URLSearchParams(location.search);
-  const barrioId = params.get('barrio') || null;
+  const groupId  = params.get('group') || params.get('barrio') || null;
   const personQr = params.get('person') || null;
   const scanQr   = params.get('scan')   || null;
 
@@ -153,9 +151,9 @@ async function boot() {
       }
       switchTab('scanner', { preload: { type: 'person', qr: personQr } });
     }).catch(() => switchTab('scanner'));
-  } else if (barrioId) {
-    // Legacy barrio deep-link: pass directly into scanner as a barrio entity
-    switchTab('scanner', { entity: { type: 'barrio', id: +barrioId } });
+  } else if (groupId) {
+    // Legacy group/barrio deep-link: pass directly into scanner as a group entity
+    switchTab('scanner', { entity: { type: 'group', id: +groupId } });
   } else if (scanQr) {
     switchTab('scanner', { preload: { qr: scanQr } });
   } else if (tabParam) {
@@ -170,9 +168,9 @@ function configureSideMenu(perms) {
     const el = document.getElementById(id) || document.querySelector(`[data-menu="${id}"]`);
     if (el) el.style.display = cond ? '' : 'none';
   };
-  document.querySelector('[data-menu="barrios"]')?.style &&
-    (document.querySelector('[data-menu="barrios"]').style.display =
-      perms.includes('view_barrios') ? '' : 'none');
+  document.querySelector('[data-menu="groups"]')?.style &&
+    (document.querySelector('[data-menu="groups"]').style.display =
+      perms.includes('view_groups') ? '' : 'none');
   document.querySelector('[data-menu="orders"]')?.style &&
     (document.querySelector('[data-menu="orders"]').style.display =
       (perms.includes('submit_orders') || perms.includes('manage_orders')) ? '' : 'none');
@@ -207,8 +205,7 @@ function bootValidator() {
 
 function rerenderCurrentTab() {
   if (!currentTab) return;
-  if (currentTab === 'checkin')       destroyCheckin();
-  if (currentTab === 'barrios')       destroyBarrios();
+  if (currentTab === 'groups')        destroyGroups();
   if (currentTab === 'validate')      destroyValidate();
   if (currentTab === 'scanner')       destroyScanner();
   if (currentTab === 'fill-requests') destroyFillRequests();
@@ -219,9 +216,7 @@ function rerenderCurrentTab() {
   switch (currentTab) {
     case 'home':          initHome(panel, _currentUser);        break;
     case 'scanner':       initScanner(panel, _currentUser, { onTabSwitch: switchTab, toast, requireIdentityFn: requireIdentity, onIdentityResolvedFn: onIdentityResolved }); break;
-    case 'checkout':      initCheckout(panel, null);            break;
-    case 'checkin':       initCheckin(panel);                   break;
-    case 'barrios':       initBarrios(panel, null);             break;
+    case 'groups':        initGroups(panel, null);              break;
     case 'inventory':     initInventory(panel);                 break;
     case 'history':       initHistory(panel);                   break;
     case 'orders':        initOrders(panel);                    break;
@@ -233,8 +228,7 @@ function rerenderCurrentTab() {
 export function switchTab(name, extra = null) {
   if (currentTab === name && !extra) return;
 
-  if (currentTab === 'checkin')       destroyCheckin();
-  if (currentTab === 'barrios')       destroyBarrios();
+  if (currentTab === 'groups')        destroyGroups();
   if (currentTab === 'validate')      destroyValidate();
   if (currentTab === 'scanner')       destroyScanner();
   if (currentTab === 'fill-requests') destroyFillRequests();
@@ -252,9 +246,7 @@ export function switchTab(name, extra = null) {
   switch (name) {
     case 'home':          initHome(panel, _currentUser);        break;
     case 'scanner':       initScanner(panel, _currentUser, { extra, onTabSwitch: switchTab, toast, updateBannerFn: refreshSessionBanner, requireIdentityFn: requireIdentity, onIdentityResolvedFn: onIdentityResolved }); break;
-    case 'checkout':      initCheckout(panel, extra);           break;
-    case 'checkin':       initCheckin(panel);                   break;
-    case 'barrios':       initBarrios(panel, extra);            break;
+    case 'groups':        initGroups(panel, extra);             break;
     case 'inventory':     initInventory(panel);                 break;
     case 'history':       initHistory(panel);                   break;
     case 'orders':        initOrders(panel);                    break;

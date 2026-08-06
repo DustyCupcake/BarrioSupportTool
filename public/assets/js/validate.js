@@ -159,7 +159,7 @@ async function handleScan(qr, container, strictMode) {
       scanOverlay.show({
         state: 'success',
         title: __('validVoucher'),
-        subtitle: item.current_barrio?.name ? `Checked out to ${item.current_barrio.name}` : 'Ready to use',
+        subtitle: item.current_group?.name ? `Checked out to ${item.current_group.name}` : 'Ready to use',
         buttons: [
           { label: 'Mark as used', action: doUse },
           { label: _c('undo'),     action: doReset },
@@ -233,8 +233,8 @@ async function markUsed(qr, item, container, strictMode) {
   const newEntry = {
     qr,
     name:       item.name,
-    barrio_name: item.current_barrio?.name ?? '—',
-    barrio_id:  item.current_barrio?.id ?? null,
+    barrio_name: item.current_group?.name ?? '—',
+    barrio_id:  item.current_group?.id ?? null,
   };
 
   // Check for cross-barrio mismatch

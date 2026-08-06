@@ -5,7 +5,7 @@ declare(strict_types=1);
  * Unified QR code lookup. No auth required — returns public info for anyone,
  * richer detail when a session is present.
  *
- * Lookup order: equipment item → user (person QR) → barrio → department
+ * Lookup order: equipment item → user (person QR) → group → department
  */
 function handle_scan_lookup(): void {
     require_method('GET');
@@ -26,19 +26,28 @@ function handle_scan_lookup(): void {
     // ── 1. Equipment item ────────────────────────────────────────────────────
     $stmt = db()->prepare(
         'SELECT i.id, i.qr_code, i.status, i.notes, i.equipment_type_id, i.dept_label,
-                i.current_dept_id, i.current_barrio_id, i.current_artist_id, i.current_person_id,
+                i.owning_dept_id, i.holder_type, i.holder_id,
+                i.home_location_id AS item_home_loc_id,
+                i.require_home_location AS item_require_home,
+                i.require_any_location AS item_require_any,
                 t.name AS type_name, t.category, t.secure_qr, t.borrowable,
-                b.name AS barrio_name,
+                t.home_location_id AS type_home_loc_id,
+                t.require_home_location AS type_require_home,
+                t.require_any_location AS type_require_any,
+                hg.name AS group_name,
                 d.name AS dept_name,
-                a.name AS artist_name,
+                hd.name AS holder_dept_name,
                 p.display_name AS person_name,
+                hl.id AS eff_home_loc_id, hl.name AS home_location_name,
+                hl.latitude AS home_lat, hl.longitude AS home_lng,
                 CONCAT(t.name, " #", i.item_number) AS display_name
          FROM equipment_items i
          JOIN equipment_types t ON t.id = i.equipment_type_id
-         LEFT JOIN barrios     b ON b.id = i.current_barrio_id
-         LEFT JOIN departments d ON d.id = i.current_dept_id
-         LEFT JOIN artists     a ON a.id = i.current_artist_id
-         LEFT JOIN users       p ON p.id = i.current_person_id
+         LEFT JOIN departments d  ON d.id = i.owning_dept_id
+         LEFT JOIN groups      hg ON hg.id = i.holder_id AND i.holder_type = "group"
+         LEFT JOIN departments hd ON hd.id = i.holder_id AND i.holder_type = "department"
+         LEFT JOIN users       p  ON p.id = i.holder_id AND i.holder_type = "person"
+         LEFT JOIN storage_locations hl ON hl.id = COALESCE(i.home_location_id, t.home_location_id)
          WHERE i.qr_code = ?'
     );
     $stmt->execute([$qr]);
@@ -57,14 +66,26 @@ function handle_scan_lookup(): void {
             $result['qr_code']         = $item['qr_code'];
             $result['dept_label']      = $item['dept_label'];
             $result['borrowable']      = (bool)$item['borrowable'];
-            $result['current_dept']    = $item['current_dept_id']
-                ? ['id' => (int)$item['current_dept_id'],   'name' => $item['dept_name']]   : null;
-            $result['current_barrio']  = $item['current_barrio_id']
-                ? ['id' => (int)$item['current_barrio_id'], 'name' => $item['barrio_name']] : null;
-            $result['current_artist']  = $item['current_artist_id']
-                ? ['id' => (int)$item['current_artist_id'], 'name' => $item['artist_name']] : null;
-            $result['current_person']  = $item['current_person_id']
-                ? ['id' => (int)$item['current_person_id'], 'name' => $item['person_name']] : null;
+            $result['current_dept']    = $item['owning_dept_id']
+                ? ['id' => (int)$item['owning_dept_id'],   'name' => $item['dept_name']]   : null;
+            $result['holder_type']     = $item['holder_type'];
+            $result['current_group']   = ($item['holder_type'] === 'group' && $item['holder_id'])
+                ? ['id' => (int)$item['holder_id'], 'name' => $item['group_name']] : null;
+            $result['holder_dept']     = ($item['holder_type'] === 'department' && $item['holder_id'])
+                ? ['id' => (int)$item['holder_id'], 'name' => $item['holder_dept_name']] : null;
+            $result['current_person']  = ($item['holder_type'] === 'person' && $item['holder_id'])
+                ? ['id' => (int)$item['holder_id'], 'name' => $item['person_name']] : null;
+
+            $result['require_home_location'] = $item['item_require_home'] !== null
+                ? (bool)$item['item_require_home'] : (bool)$item['type_require_home'];
+            $result['require_any_location']  = $item['item_require_any'] !== null
+                ? (bool)$item['item_require_any'] : (bool)$item['type_require_any'];
+            $result['home_location'] = $item['eff_home_loc_id']
+                ? ['id'        => (int)$item['eff_home_loc_id'],
+                   'name'      => $item['home_location_name'],
+                   'latitude'  => $item['home_lat'] !== null ? (float)$item['home_lat'] : null,
+                   'longitude' => $item['home_lng'] !== null ? (float)$item['home_lng'] : null]
+                : null;
 
             if ($item['borrowable']) {
                 $eligibility = check_borrow_eligible(
@@ -111,25 +132,28 @@ function handle_scan_lookup(): void {
         json_ok($result);
     }
 
-    // ── 3. Barrio ────────────────────────────────────────────────────────────
+    // ── 3. Group ─────────────────────────────────────────────────────────────
     $stmt = db()->prepare(
-        'SELECT id, name, arrival_status FROM barrios WHERE qr_code = ?'
+        'SELECT id, name, arrival_status, enable_arrival_tracking, enable_consumable_entitlements
+         FROM groups WHERE qr_code = ?'
     );
     $stmt->execute([$qr]);
-    if ($barrio = $stmt->fetch()) {
+    if ($group = $stmt->fetch()) {
         $result = [
-            'type'           => 'barrio',
-            'name'           => $barrio['name'],
-            'arrival_status' => $barrio['arrival_status'],
+            'type'                          => 'group',
+            'name'                          => $group['name'],
+            'arrival_status'                => $group['arrival_status'],
+            'enable_arrival_tracking'       => (bool)$group['enable_arrival_tracking'],
+            'enable_consumable_entitlements' => (bool)$group['enable_consumable_entitlements'],
         ];
         if ($authed) {
-            $result['id'] = (int)$barrio['id'];
+            $result['id'] = (int)$group['id'];
 
-            if (in_array('view_barrios', $perms, true)) {
+            if (in_array('view_groups', $perms, true) || in_array('manage_groups', $perms, true)) {
                 $ic_stmt = db()->prepare(
-                    'SELECT COUNT(*) FROM equipment_items WHERE current_barrio_id = ?'
+                    'SELECT COUNT(*) FROM equipment_items WHERE holder_type = "group" AND holder_id = ?'
                 );
-                $ic_stmt->execute([$barrio['id']]);
+                $ic_stmt->execute([$group['id']]);
                 $item_count = (int)$ic_stmt->fetchColumn();
                 $result['item_count'] = $item_count;
             }
@@ -139,14 +163,14 @@ function handle_scan_lookup(): void {
 
     // ── 4. Department ────────────────────────────────────────────────────────
     $stmt = db()->prepare(
-        'SELECT id, name, sub_entity FROM departments WHERE qr_code = ? AND is_active = 1'
+        'SELECT id, name, manages_groups FROM departments WHERE qr_code = ? AND is_active = 1'
     );
     $stmt->execute([$qr]);
     if ($dept = $stmt->fetch()) {
         $result = [
-            'type'       => 'department',
-            'name'       => $dept['name'],
-            'sub_entity' => $dept['sub_entity'],
+            'type'           => 'department',
+            'name'           => $dept['name'],
+            'manages_groups' => (bool)$dept['manages_groups'],
         ];
         if ($authed) {
             $result['id'] = (int)$dept['id'];

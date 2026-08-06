@@ -18,13 +18,13 @@ function handle_list_consumable_types(): void {
 
 // ─── Admin CRUD /admin/consumable-types ───────────────────────────────────────
 function handle_admin_consumable_types(): void {
-    $user = require_auth('admin');
+    $user = require_permission('manage_consumables');
     $m    = $_SERVER['REQUEST_METHOD'];
 
     if ($m === 'GET') {
         $rows = db()->query(
             'SELECT ct.id, ct.name, ct.key_name, ct.sort_order,
-                    (SELECT COUNT(*) FROM barrio_entitlements e WHERE e.type_id = ct.id) AS entitlement_count
+                    (SELECT COUNT(*) FROM group_entitlements e WHERE e.type_id = ct.id) AS entitlement_count
              FROM consumable_types ct ORDER BY ct.sort_order, ct.name'
         )->fetchAll();
         foreach ($rows as &$r) {
@@ -76,7 +76,7 @@ function handle_admin_consumable_types(): void {
     if ($m === 'DELETE') {
         $id = (int)($b['id'] ?? 0);
         if (!$id) json_error('id required', 400);
-        $count = db()->prepare('SELECT COUNT(*) FROM barrio_entitlements WHERE type_id=?');
+        $count = db()->prepare('SELECT COUNT(*) FROM group_entitlements WHERE type_id=?');
         $count->execute([$id]);
         if ((int)$count->fetchColumn() > 0) json_error('Type has entitlement records — remove those first', 409);
         db()->prepare('DELETE FROM consumable_types WHERE id=?')->execute([$id]);
@@ -90,22 +90,22 @@ function handle_admin_consumable_types(): void {
 // ─── PUT /admin/barrio-entitlements ───────────────────────────────────────────
 function handle_admin_barrio_entitlements(): void {
     require_method('PUT');
-    require_auth('admin');
+    require_permission('manage_consumables');
     verify_csrf();
 
-    $b         = body();
-    $barrio_id = (int)($b['barrio_id'] ?? 0);
-    $type_id   = (int)($b['type_id'] ?? 0);
+    $b        = body();
+    $group_id = (int)($b['group_id'] ?? $b['barrio_id'] ?? 0);
+    $type_id  = (int)($b['type_id'] ?? 0);
     $purchased = max(0, (int)($b['purchased'] ?? 0));
 
-    if (!$barrio_id || !$type_id) json_error('barrio_id and type_id required', 400);
+    if (!$group_id || !$type_id) json_error('group_id and type_id required', 400);
 
     $s = db()->prepare(
-        'INSERT INTO barrio_entitlements (barrio_id, type_id, purchased, distributed)
+        'INSERT INTO group_entitlements (group_id, type_id, purchased, distributed)
          VALUES (?,?,?,0)
          ON DUPLICATE KEY UPDATE purchased=VALUES(purchased)'
     );
-    $s->execute([$barrio_id, $type_id, $purchased]);
+    $s->execute([$group_id, $type_id, $purchased]);
 
     json_ok(['success' => true]);
 }
@@ -113,22 +113,22 @@ function handle_admin_barrio_entitlements(): void {
 // ─── PUT /admin/barrio-equipment-orders ──────────────────────────────────────
 function handle_admin_equipment_orders(): void {
     require_method('PUT');
-    require_auth('admin');
+    require_permission('manage_consumables');
     verify_csrf();
 
     $b                 = body();
-    $barrio_id         = (int)($b['barrio_id'] ?? 0);
+    $group_id          = (int)($b['group_id'] ?? $b['barrio_id'] ?? 0);
     $equipment_type_id = (int)($b['equipment_type_id'] ?? 0);
     $quantity_ordered  = max(0, (int)($b['quantity_ordered'] ?? 0));
 
-    if (!$barrio_id || !$equipment_type_id) json_error('barrio_id and equipment_type_id required', 400);
+    if (!$group_id || !$equipment_type_id) json_error('group_id and equipment_type_id required', 400);
 
     $s = db()->prepare(
-        'INSERT INTO barrio_equipment_orders (barrio_id, equipment_type_id, quantity_ordered)
+        'INSERT INTO group_equipment_orders (group_id, equipment_type_id, quantity_ordered)
          VALUES (?,?,?)
          ON DUPLICATE KEY UPDATE quantity_ordered=VALUES(quantity_ordered)'
     );
-    $s->execute([$barrio_id, $equipment_type_id, $quantity_ordered]);
+    $s->execute([$group_id, $equipment_type_id, $quantity_ordered]);
 
     json_ok(['success' => true]);
 }
@@ -139,18 +139,19 @@ function handle_barrio_distribute(): void {
     $user = require_auth();
     verify_csrf();
 
-    $b         = body();
-    $barrio_id = (int)($b['barrio_id'] ?? 0);
-    $items     = $b['items'] ?? [];
+    $b        = body();
+    $group_id = (int)($b['group_id'] ?? $b['barrio_id'] ?? 0);
+    $items    = $b['items'] ?? [];
 
-    if (!$barrio_id) json_error('barrio_id required', 400);
+    if (!$group_id) json_error('group_id required', 400);
     if (!is_array($items) || !count($items)) json_error('items array required', 400);
 
-    $check = db()->prepare('SELECT arrival_status FROM barrios WHERE id=?');
-    $check->execute([$barrio_id]);
-    $barrio = $check->fetch();
-    if (!$barrio) json_error('Barrio not found', 404);
-    if ($barrio['arrival_status'] !== 'on-site') json_error('Barrio is not on site', 409);
+    $check = db()->prepare('SELECT arrival_status, enable_consumable_entitlements FROM groups WHERE id=?');
+    $check->execute([$group_id]);
+    $group = $check->fetch();
+    if (!$group) json_error('Group not found', 404);
+    if (!$group['enable_consumable_entitlements']) json_error('This group does not track consumable entitlements', 400);
+    if ($group['arrival_status'] !== 'on-site') json_error('Group is not on site', 409);
 
     $db = db();
     $db->beginTransaction();
@@ -162,16 +163,16 @@ function handle_barrio_distribute(): void {
 
             $db->prepare(
                 'INSERT INTO distribution_events
-                    (barrio_id, type_id, quantity, performed_by, user_name_cache, occurred_at)
+                    (group_id, type_id, quantity, performed_by, user_name_cache, occurred_at)
                  VALUES (?,?,?,?,?,NOW())'
-            )->execute([$barrio_id, $type_id, $quantity, $user['id'], $user['display_name']]);
+            )->execute([$group_id, $type_id, $quantity, $user['id'], $user['display_name']]);
 
             // Upsert entitlement row and increment distributed
             $db->prepare(
-                'INSERT INTO barrio_entitlements (barrio_id, type_id, purchased, distributed)
+                'INSERT INTO group_entitlements (group_id, type_id, purchased, distributed)
                  VALUES (?,?,0,?)
                  ON DUPLICATE KEY UPDATE distributed = distributed + VALUES(distributed)'
-            )->execute([$barrio_id, $type_id, $quantity]);
+            )->execute([$group_id, $type_id, $quantity]);
         }
         $db->commit();
     } catch (\Throwable $e) {
@@ -180,13 +181,13 @@ function handle_barrio_distribute(): void {
     }
 
     // Return updated entitlements
-    json_ok(['success' => true, 'entitlements' => _get_entitlements($barrio_id)]);
+    json_ok(['success' => true, 'entitlements' => _get_entitlements($group_id)]);
 }
 
 // ─── POST /admin/barrios/import-csv ──────────────────────────────────────────
 function handle_import_csv(): void {
     require_method('POST');
-    require_permission('manage_barrios');
+    require_permission('manage_groups');
     verify_csrf();
 
     if (empty($_FILES['file'])) json_error('No file uploaded', 400);
@@ -217,12 +218,12 @@ function handle_import_csv(): void {
     if ($name_col === false) { fclose($fh); json_error('CSV must have a "name" column', 400); }
     $sort_col = array_search('sort_order', $headers, true);
 
-    // Assign new barrios to the department that manages barrios, so dept-scoped staff
-    // (permission view_barrios without production-level view_inventory) can see them.
-    $dept_stmt = db()->prepare("SELECT id FROM departments WHERE sub_entity = 'barrio' ORDER BY id LIMIT 1");
+    // Assign new groups to the department that manages groups, so dept-scoped staff
+    // (permission view_groups without production-level view_inventory) can see them.
+    $dept_stmt = db()->prepare('SELECT id FROM departments WHERE manages_groups = 1 ORDER BY id LIMIT 1');
     $dept_stmt->execute();
-    $barrio_dept_id = $dept_stmt->fetchColumn();
-    $barrio_dept_id = $barrio_dept_id !== false ? (int)$barrio_dept_id : null;
+    $group_dept_id = $dept_stmt->fetchColumn();
+    $group_dept_id = $group_dept_id !== false ? (int)$group_dept_id : null;
 
     $created = 0; $updated = 0; $skipped = 0;
 
@@ -233,18 +234,21 @@ function handle_import_csv(): void {
 
         $sort = $sort_col !== false ? max(0, (int)($row[$sort_col] ?? 0)) : 0;
 
-        // Upsert barrio
-        $existing = db()->prepare('SELECT id FROM barrios WHERE name=?');
-        $existing->execute([$name]);
-        $barrio_row = $existing->fetch();
-        if ($barrio_row) {
-            $barrio_id = (int)$barrio_row['id'];
+        // Upsert group (barrio-style: arrival tracking + entitlements enabled)
+        $existing = db()->prepare('SELECT id FROM groups WHERE name=? AND (dept_id <=> ?)');
+        $existing->execute([$name, $group_dept_id]);
+        $group_row = $existing->fetch();
+        if ($group_row) {
+            $group_id = (int)$group_row['id'];
             $updated++;
         } else {
             try {
-                $ins = db()->prepare('INSERT INTO barrios (name, sort_order, dept_id) VALUES (?,?,?)');
-                $ins->execute([$name, $sort, $barrio_dept_id]);
-                $barrio_id = (int)db()->lastInsertId();
+                $ins = db()->prepare(
+                    'INSERT INTO groups (name, sort_order, dept_id, enable_arrival_tracking, enable_consumable_entitlements)
+                     VALUES (?,?,?,1,1)'
+                );
+                $ins->execute([$name, $sort, $group_dept_id]);
+                $group_id = (int)db()->lastInsertId();
                 $created++;
             } catch (\PDOException $e) {
                 $skipped++;
@@ -258,10 +262,10 @@ function handle_import_csv(): void {
             $qty = max(0, (int)($row[$col_idx] ?? 0));
             $type_id = (int)$consumable_types[$col];
             db()->prepare(
-                'INSERT INTO barrio_entitlements (barrio_id, type_id, purchased, distributed)
+                'INSERT INTO group_entitlements (group_id, type_id, purchased, distributed)
                  VALUES (?,?,?,0)
                  ON DUPLICATE KEY UPDATE purchased=VALUES(purchased)'
-            )->execute([$barrio_id, $type_id, $qty]);
+            )->execute([$group_id, $type_id, $qty]);
         }
 
         // Upsert equipment orders
@@ -271,10 +275,10 @@ function handle_import_csv(): void {
             $qty = max(0, (int)($row[$col_idx] ?? 0));
             $eq_type_id = $equipment_types[$col_key];
             db()->prepare(
-                'INSERT INTO barrio_equipment_orders (barrio_id, equipment_type_id, quantity_ordered)
+                'INSERT INTO group_equipment_orders (group_id, equipment_type_id, quantity_ordered)
                  VALUES (?,?,?)
                  ON DUPLICATE KEY UPDATE quantity_ordered=VALUES(quantity_ordered)'
-            )->execute([$barrio_id, $eq_type_id, $qty]);
+            )->execute([$group_id, $eq_type_id, $qty]);
         }
     }
     fclose($fh);
@@ -283,17 +287,17 @@ function handle_import_csv(): void {
 }
 
 // ─── Internal helper ──────────────────────────────────────────────────────────
-function _get_entitlements(int $barrio_id): array {
+function _get_entitlements(int $group_id): array {
     $stmt = db()->prepare(
-        'SELECT be.type_id, ct.key_name, ct.name, ct.sort_order,
-                be.purchased, be.distributed,
-                (be.purchased - be.distributed) AS remaining
-         FROM barrio_entitlements be
-         JOIN consumable_types ct ON ct.id = be.type_id
-         WHERE be.barrio_id = ?
+        'SELECT ge.type_id, ct.key_name, ct.name, ct.sort_order,
+                ge.purchased, ge.distributed,
+                (ge.purchased - ge.distributed) AS remaining
+         FROM group_entitlements ge
+         JOIN consumable_types ct ON ct.id = ge.type_id
+         WHERE ge.group_id = ?
          ORDER BY ct.sort_order, ct.name'
     );
-    $stmt->execute([$barrio_id]);
+    $stmt->execute([$group_id]);
     $rows = $stmt->fetchAll();
     foreach ($rows as &$r) {
         $r['type_id']     = (int)$r['type_id'];

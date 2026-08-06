@@ -26,12 +26,14 @@ export async function api(method, path, body = null) {
   };
   if (body !== null) opts.body = JSON.stringify(body);
 
+  const QUEUEABLE_PATHS = ['/checkout', '/sub-checkout', '/person-checkout', '/sub-person-checkout', '/checkin'];
+
   let resp;
   try {
     resp = await fetch('/api' + path, opts);
   } catch (networkErr) {
-    // Offline — queue checkout/checkin for later sync
-    if (body && (path === '/checkout' || path === '/checkin')) {
+    // Offline — queue checkout/checkin (any tier) for later sync
+    if (body && QUEUEABLE_PATHS.includes(path)) {
       await offlineEnqueue({ method, path, body });
       return { __offline: true };
     }

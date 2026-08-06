@@ -47,14 +47,6 @@
   <div id="back-bar">
     <button id="back-home-btn" data-i18n="nav.backHome">← Home</button>
   </div>
-  <nav style="display:none">
-    <button data-tab="checkout"  data-i18n="nav.lend">Lend</button>
-    <button data-tab="checkin"   data-i18n="nav.scanIn">Scan In</button>
-    <button data-tab="barrios"   data-i18n="nav.barrios">Barrios</button>
-    <button data-tab="inventory" data-i18n="nav.inventory">Inventory</button>
-    <button data-tab="history"   data-i18n="nav.history">History</button>
-    <button data-tab="orders"    data-i18n="nav.orders">Orders</button>
-  </nav>
 </header>
 
 <div id="session-banner" style="display:none"></div>
@@ -62,9 +54,7 @@
 <main>
   <div class="tab-panel" id="tab-home"                  style="display:none"></div>
   <div class="tab-panel" id="tab-scanner"               style="display:none"></div>
-  <div class="tab-panel" id="tab-checkout"              style="display:none"></div>
-  <div class="tab-panel" id="tab-checkin"               style="display:none"></div>
-  <div class="tab-panel" id="tab-barrios"               style="display:none"></div>
+  <div class="tab-panel" id="tab-groups"                style="display:none"></div>
   <div class="tab-panel" id="tab-inventory"             style="display:none"></div>
   <div class="tab-panel" id="tab-history"               style="display:none"></div>
   <div class="tab-panel" id="tab-orders"                style="display:none"></div>
@@ -124,8 +114,8 @@
   <button class="side-menu-item" data-menu="history">
     <span class="side-menu-item-icon">📋</span><span data-i18n="nav.history">History</span>
   </button>
-  <button class="side-menu-item" data-menu="barrios" style="display:none">
-    <span class="side-menu-item-icon">⛺</span><span data-i18n="nav.barrios">Barrios</span>
+  <button class="side-menu-item" data-menu="groups" style="display:none">
+    <span class="side-menu-item-icon">⛺</span><span data-i18n="nav.groups">Groups</span>
   </button>
   <button class="side-menu-item" data-menu="orders" style="display:none">
     <span class="side-menu-item-icon">📝</span><span data-i18n="nav.orders">Orders</span>
@@ -162,6 +152,6 @@
 </div>
 
 <script src="/assets/vendor/jsqr.min.js?v=1.0.0"></script>
-<script type="module" src="/assets/js/app.js?v=1.0.7"></script>
+<script type="module" src="/assets/js/app.js?v=1.0.8"></script>
 </body>
 </html>

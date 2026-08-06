@@ -129,12 +129,12 @@ function _assert_dept_item_access(int $item_id): void {
     $dept_ids = $_SESSION['dept_ids'] ?? [];
 
     $stmt = db()->prepare(
-        'SELECT current_dept_id FROM equipment_items WHERE id = ?'
+        'SELECT owning_dept_id FROM equipment_items WHERE id = ?'
     );
     $stmt->execute([$item_id]);
     $item = $stmt->fetch();
 
-    if (!$item || !$item['current_dept_id'] || !in_array((int)$item['current_dept_id'], $dept_ids, true)) {
+    if (!$item || !$item['owning_dept_id'] || !in_array((int)$item['owning_dept_id'], $dept_ids, true)) {
         json_error('Forbidden: item not in your department', 403);
     }
 }

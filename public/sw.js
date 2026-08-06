@@ -3,7 +3,7 @@
  * Cache version: bump CACHE_VER when deploying CSS/JS changes.
  */
 
-const CACHE_VER  = 'v5';
+const CACHE_VER  = 'v6';
 const CACHE_NAME = 'barrio-' + CACHE_VER;
 
 const APP_SHELL = [
@@ -12,18 +12,19 @@ const APP_SHELL = [
   '/assets/css/main.css?v=1.0.0',
   '/assets/css/app.css?v=1.0.1',
   '/assets/vendor/jsqr.min.js?v=1.0.0',
-  '/assets/js/app.js?v=1.0.7',
+  '/assets/js/app.js?v=1.0.1',
   '/assets/js/api.js?v=1.0.1',
-  '/assets/js/offline.js?v=1.0.0',
-  '/assets/js/scanner.js?v=1.0.0',
-  '/assets/js/checkout.js?v=1.0.4',
-  '/assets/js/checkin.js?v=1.0.3',
-  '/assets/js/inventory.js?v=1.0.0',
+  '/assets/js/offline.js?v=1.0.1',
+  '/assets/js/scanner.js?v=1.0.1',
+  '/assets/js/unified-scanner.js?v=1.0.5',
+  '/assets/js/scan-result.js?v=1.0.1',
+  '/assets/js/home.js?v=1.0.3',
+  '/assets/js/inventory.js?v=1.0.1',
   '/assets/js/history.js?v=1.0.0',
-  '/assets/js/barrios.js?v=1.0.1',
+  '/assets/js/groups.js?v=1.0.3',
   '/assets/js/validate.js?v=1.0.2',
   '/assets/js/activate.js?v=1.0.0',
-  '/assets/js/scan-overlay.js?v=1.0.0',
+  '/assets/js/scan-overlay.js?v=1.0.1',
 ];
 
 // ── Install: cache app shell ───────────────────────────────────────────────

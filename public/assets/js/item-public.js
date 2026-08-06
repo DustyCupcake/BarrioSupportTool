@@ -106,11 +106,11 @@ function renderWithData() {
       <div id="it-loc-msg" style="font-size:13px;margin-top:.4rem;color:var(--text3)"></div>
     </div>` : '';
 
-  // Fill request card (for water cubes with a barrio assignment, when user has request_fills)
+  // Fill request card (for water cubes with a group assignment, when user has request_fills)
   const isWaterCube = _data.category === 'water_cube';
-  const hasBarrio   = !!_data.current_barrio_id;
+  const hasGroup    = !!_data.current_group_id;
   const canFill     = _user?.permissions?.includes('request_fills');
-  const fillBlock   = isWaterCube && hasBarrio && canFill ? `
+  const fillBlock   = isWaterCube && hasGroup && canFill ? `
     <div class="it-section" id="it-fill-section">
       <div class="it-section-title">💧 Water fill</div>
       <button class="btn primary" id="it-fill-req-btn">Request fill</button>

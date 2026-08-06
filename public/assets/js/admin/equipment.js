@@ -267,6 +267,15 @@ async function saveType() {
 
   if (!name) { _toast('Name required'); return; }
 
+  // Only prompt when actually turning a flag on, not on every save of an
+  // already-required type.
+  const existing  = id ? _types.find(t => String(t.id) === String(id)) : null;
+  const turningOn = (require_home_location && !existing?.require_home_location)
+                  || (require_any_location  && !existing?.require_any_location);
+  if (turningOn && !confirm(
+    'This will block checkin for every item of this type (that doesn\'t have its own override) until a storage location is scanned — including items just dropped off somewhere. Continue?'
+  )) return;
+
   const payload = { name, category: cat, secure_qr, borrowable, is_crate, deployment_destination,
     home_location_id: home_location_id ? +home_location_id : null,
     require_home_location, require_any_location };
@@ -466,6 +475,10 @@ async function applyBulk() {
 
   if (!Object.keys(fields).length) { _toast('Select something to apply'); return; }
 
+  if ((reqVal === 'require_home' || reqVal === 'require_any') && !confirm(
+    `This will block checkin for ${_selected.size} item${_selected.size !== 1 ? 's' : ''} until a storage location is scanned — including if they're just dropped off somewhere. Continue?`
+  )) return;
+
   try {
     const res = await post('/admin/items/bulk-update', { item_ids: [..._selected], fields });
     _toast(`Updated ${res.updated} item${res.updated !== 1 ? 's' : ''}`);
@@ -527,8 +540,8 @@ function openImportStatus() {
         file are applied, and a blank cell leaves that field unchanged:
         <ul style="margin:.35rem 0 0 1.1rem">
           <li><code>status</code> — available / checked-out / retired</li>
-          <li><code>barrio</code> — barrio name to check the item out to; leave blank to check it
-              back in from its current barrio</li>
+          <li><code>barrio</code> — group name to check the item out to; leave blank to check it
+              back in from its current group</li>
           <li><code>notes</code></li>
         </ul>
       </div>
@@ -684,6 +697,13 @@ async function saveItemEdit() {
   const lngVal   = document.getElementById('ei-lng').value.trim();
 
   if (!id) return;
+
+  const existingItem = _items.find(x => x.id === id);
+  const turningOn = (reqHome === 'yes' && existingItem?.require_home_location !== true)
+                  || (reqAny  === 'yes' && existingItem?.require_any_location  !== true);
+  if (turningOn && !confirm(
+    'This will block checkin for this item until a storage location is scanned — including if it\'s just dropped off somewhere. Continue?'
+  )) return;
 
   const payload = { id };
   payload.home_location_id       = homeLoc !== '' ? +homeLoc : null;

@@ -30,12 +30,8 @@ function buildSecondary(perms) {
   const has = p => perms.includes(p);
   const btns = [];
 
-  if (has('checkout_equipment')) {
-    btns.push({ tab: 'checkout', label: _h('lendToTeam'), sub: _h('lendToTeamSub') });
-  }
-
-  if (has('view_barrios')) {
-    btns.push({ tab: 'barrios', label: _h('barriosMgmt'), sub: _h('barriosMgmtSub') });
+  if (has('view_groups')) {
+    btns.push({ tab: 'groups', label: _h('barriosMgmt'), sub: _h('barriosMgmtSub') });
   }
 
   return btns;
