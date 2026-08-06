@@ -1,5 +1,9 @@
 /**
- * Barrios tab — list + detail views for barrio arrival/departure tracking.
+ * Groups tab — list + detail views for group arrival/departure tracking and
+ * consumable entitlements. Replaces the old separate barrios/artists tabs:
+ * a group is any team/camp/collective a department lends equipment to, with
+ * enable_arrival_tracking / enable_consumable_entitlements as per-group flags
+ * instead of a hardcoded entity type.
  */
 
 import { get, post } from './api.js?v=1.0.1';
@@ -16,12 +20,12 @@ let arrivalOpen  = false;  // whether inline arrival form is expanded
 let allBarrios   = [];
 let activeFilter = null;   // null | 'expected' | 'on-site' | 'departed'
 
-export function init(el, barrioId = null) {
+export function init(el, groupId = null) {
   container   = el;
   detailId    = null;
   arrivalOpen = false;
-  if (barrioId) {
-    loadDetail(barrioId);
+  if (groupId) {
+    loadDetail(groupId);
   } else {
     loadList();
   }
@@ -37,35 +41,39 @@ async function loadList() {
   activeFilter = null;
   container.innerHTML = `<div class="card"><div class="empty" style="padding:1.5rem 0">${__('loading')}</div></div>`;
   try {
-    const data = await get('/barrios');
-    renderList(data.barrios || []);
+    const data = await get('/groups');
+    renderList(data.groups || []);
   } catch (e) {
-    toast('Could not load barrios: ' + e.message);
+    toast('Could not load groups: ' + e.message);
     container.innerHTML = `<div class="card"><div class="empty">${__('loadFailed')}</div></div>`;
   }
 }
 
-function renderList(barrios) {
-  allBarrios = barrios;
+function renderList(groups) {
+  allBarrios = groups;
   renderFiltered();
 }
 
 function renderFiltered() {
+  // Arrival status filtering/stats only make sense for arrival-tracking groups.
+  const tracked = allBarrios.filter(b => b.enable_arrival_tracking);
+  const untracked = allBarrios.filter(b => !b.enable_arrival_tracking);
+
   const counts = {
-    expected: allBarrios.filter(b => b.arrival_status === 'expected').length,
-    'on-site': allBarrios.filter(b => b.arrival_status === 'on-site').length,
-    departed:  allBarrios.filter(b => b.arrival_status === 'departed').length,
+    expected: tracked.filter(b => b.arrival_status === 'expected').length,
+    'on-site': tracked.filter(b => b.arrival_status === 'on-site').length,
+    departed:  tracked.filter(b => b.arrival_status === 'departed').length,
   };
 
-  const visible = activeFilter
-    ? allBarrios.filter(b => b.arrival_status === activeFilter)
-    : allBarrios;
+  const visibleTracked = activeFilter
+    ? tracked.filter(b => b.arrival_status === activeFilter)
+    : tracked;
 
   const clearChip = activeFilter
     ? `<div class="barrio-clear-chip" data-action="clear">${__('clearFilter')}</div>`
     : '';
 
-  container.innerHTML = `
+  const statsHTML = tracked.length ? `
     <div class="barrio-stats">
       <div class="barrio-stat-chip expected${activeFilter === 'expected' ? ' active' : ''}" data-filter="expected">
         <span class="status-dot expected"></span>
@@ -81,6 +89,12 @@ function renderFiltered() {
       </div>
       ${clearChip}
     </div>
+  ` : '';
+
+  const visible = [...visibleTracked, ...(activeFilter ? [] : untracked)];
+
+  container.innerHTML = `
+    ${statsHTML}
     <div class="card" style="padding:0">
       ${visible.length
         ? visible.map(b => barrioCardHTML(b)).join('')
@@ -107,15 +121,21 @@ function renderFiltered() {
 }
 
 function barrioCardHTML(b) {
-  const badge = b.arrival_status === 'on-site' && b.items_out_count > 0
+  const badge = b.items_out_count > 0
     ? `<span class="items-out-badge">${__('itemsOut').replace('[N]', b.items_out_count)}</span>`
+    : '';
+  const statusDot = b.enable_arrival_tracking
+    ? `<span class="status-dot ${b.arrival_status}"></span>`
+    : '';
+  const statusLbl = b.enable_arrival_tracking
+    ? `<div class="barrio-status-label ${b.arrival_status}">${statusLabel(b.arrival_status)}</div>`
     : '';
   return `
     <div class="barrio-card" data-barrio-id="${b.id}">
-      <span class="status-dot ${b.arrival_status}"></span>
+      ${statusDot}
       <div class="barrio-card-body">
         <div class="barrio-card-name">${_esc(b.name)}</div>
-        <div class="barrio-status-label ${b.arrival_status}">${statusLabel(b.arrival_status)}</div>
+        ${statusLbl}
       </div>
       ${badge}
       <span class="barrio-card-arrow">›</span>
@@ -130,18 +150,20 @@ async function loadDetail(id) {
   arrivalOpen = false;
   container.innerHTML = `<div class="card"><div class="empty" style="padding:1.5rem 0">${__('loading')}</div></div>`;
   try {
-    const data = await get('/barrios/' + id);
-    renderDetail(data.barrio, data.items_out || [], data.entitlements || [], data.equipment_orders || []);
+    const data = await get('/groups/' + id);
+    renderDetail(data.group || data.barrio, data.items_out || [], data.entitlements || [], data.equipment_orders || []);
   } catch (e) {
-    toast('Could not load barrio: ' + e.message);
+    toast('Could not load group: ' + e.message);
     loadList();
   }
 }
 
 function renderDetail(barrio, itemsOut, entitlements, equipmentOrders) {
-  const status = barrio.arrival_status;
+  const tracksArrival  = !!barrio.enable_arrival_tracking;
+  const tracksEnt      = !!barrio.enable_consumable_entitlements;
+  const status = tracksArrival ? barrio.arrival_status : null;
 
-  const arrivalSection = status !== 'expected' ? `
+  const arrivalSection = tracksArrival && status !== 'expected' ? `
     <div class="barrio-detail-section">
       <div class="card-label">${__('sectionArrival')}</div>
       <div class="barrio-detail-row">
@@ -156,9 +178,9 @@ function renderDetail(barrio, itemsOut, entitlements, equipmentOrders) {
         <span class="barrio-detail-key">${__('orientation')}</span>
         <span>${barrio.orientation_done ? __('orientationDone') : __('orientationNone')}</span>
       </div>
-      ${entitlementsHTML(entitlements, status)}
+      ${tracksEnt ? entitlementsHTML(entitlements, status) : ''}
     </div>
-  ` : (entitlements.length ? `
+  ` : (tracksEnt && entitlements.length ? `
     <div class="barrio-detail-section">
       ${entitlementsHTML(entitlements, status)}
     </div>
@@ -181,7 +203,7 @@ function renderDetail(barrio, itemsOut, entitlements, equipmentOrders) {
     </div>
   ` : '';
 
-  const departureSection = status === 'departed' ? `
+  const departureSection = tracksArrival && status === 'departed' ? `
     <div class="barrio-detail-section" style="margin-top:.75rem">
       <div class="card-label">${__('sectionDeparture')}</div>
       <div class="barrio-detail-row">
@@ -213,28 +235,36 @@ function renderDetail(barrio, itemsOut, entitlements, equipmentOrders) {
   `;
 
   let actionSection = '';
-  if (status === 'expected') {
+  if (tracksArrival && status === 'expected') {
     actionSection = `
       <div id="barrio-arrival-area">
         <button class="btn primary" id="barrio-arrival-btn" style="margin-top:0">${__('recordArrival')}</button>
       </div>
     `;
-  } else if (status === 'on-site') {
+  } else if (tracksArrival && status === 'on-site') {
     actionSection = `
       <div style="display:flex;gap:.5rem;flex-wrap:wrap">
-        ${entitlements.length ? `<button class="btn" id="barrio-distribute-btn" style="margin-top:0;flex:1">${__('distributeItems')}</button>` : ''}
+        ${tracksEnt && entitlements.length ? `<button class="btn" id="barrio-distribute-btn" style="margin-top:0;flex:1">${__('distributeItems')}</button>` : ''}
         <button class="btn danger" id="barrio-departure-btn" style="margin-top:0;flex:1">${__('recordDeparture')}</button>
       </div>
       <div id="barrio-distribute-area"></div>
     `;
+  } else if (!tracksArrival && tracksEnt && entitlements.length) {
+    actionSection = `
+      <div id="barrio-distribute-area"></div>
+      <button class="btn" id="barrio-distribute-btn" style="margin-top:0">${__('distributeItems')}</button>
+    `;
   }
+
+  const statusDot   = tracksArrival ? `<span class="status-dot ${status}" style="flex-shrink:0"></span>` : '';
+  const statusLabelEl = tracksArrival ? `<span class="barrio-status-label ${status}">${statusLabel(status)}</span>` : '';
 
   container.innerHTML = `
     <div style="display:flex;align-items:center;gap:10px;margin-bottom:1rem">
       <button class="btn ghost" style="width:auto;margin:0;padding:6px 10px" id="barrio-back">← ${_c('back')}</button>
-      <span class="status-dot ${status}" style="flex-shrink:0"></span>
+      ${statusDot}
       <span style="font-size:16px;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_esc(barrio.name)}</span>
-      <span class="barrio-status-label ${status}">${statusLabel(status)}</span>
+      ${statusLabelEl}
     </div>
     <div class="card">
       ${arrivalSection}
@@ -247,16 +277,20 @@ function renderDetail(barrio, itemsOut, entitlements, equipmentOrders) {
 
   container.querySelector('#barrio-back')?.addEventListener('click', loadList);
 
-  if (status === 'expected') {
+  if (tracksArrival && status === 'expected') {
     container.querySelector('#barrio-arrival-btn')?.addEventListener('click', () => {
       showArrivalForm(barrio, entitlements);
     });
-  } else if (status === 'on-site') {
+  } else if (tracksArrival && status === 'on-site') {
     container.querySelector('#barrio-distribute-btn')?.addEventListener('click', () => {
       showDistributeForm(barrio, entitlements);
     });
     container.querySelector('#barrio-departure-btn')?.addEventListener('click', () => {
       confirmDeparture(barrio.id, itemsOut.length, barrio.name);
+    });
+  } else if (!tracksArrival) {
+    container.querySelector('#barrio-distribute-btn')?.addEventListener('click', () => {
+      showDistributeForm(barrio, entitlements);
     });
   }
 }
@@ -306,7 +340,7 @@ function showArrivalForm(barrio, entitlements) {
             inputmode="numeric" style="max-width:90px">
         </div>
       `).join('')
-    : '<p style="font-size:13px;color:var(--text3)">No consumable entitlements set for this barrio.</p>';
+    : '<p style="font-size:13px;color:var(--text3)">No consumable entitlements set for this group.</p>';
 
   area.innerHTML = `
     <div class="card arrival-form-section" style="margin-top:0">
@@ -340,8 +374,8 @@ function showArrivalForm(barrio, entitlements) {
     btn.innerHTML = '<span class="spinner"></span> Recording…';
 
     try {
-      await post('/barrio-arrival', {
-        barrio_id:        barrio.id,
+      await post('/group-arrival', {
+        group_id:         barrio.id,
         items,
         orientation_done: orient,
       });
@@ -408,7 +442,7 @@ function showDistributeForm(barrio, entitlements) {
     btn.innerHTML = '<span class="spinner"></span> Recording…';
 
     try {
-      await post('/barrio-distribute', { barrio_id: barrio.id, items });
+      await post('/barrio-distribute', { group_id: barrio.id, items });
       toast(__('distributeDone').replace('[BARRIO]', barrio.name));
       loadDetail(barrio.id);
     } catch (e) {
@@ -449,7 +483,7 @@ async function confirmDeparture(barrioId, itemsOutCount, barrioName) {
 async function doDeparture(barrioId, barrioName, force) {
   scanOverlay.hide();
   try {
-    const result = await post('/barrio-departure', { barrio_id: barrioId, force });
+    const result = await post('/group-departure', { group_id: barrioId, force });
     if (result.__offline) {
       toast(__('noConnection'));
       return;

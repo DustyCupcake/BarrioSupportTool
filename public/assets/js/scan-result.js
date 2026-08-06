@@ -21,11 +21,11 @@ export function renderScanResult(container, lookupData, perms, onAction) {
   switch (type) {
     case 'item': {
       const { name, category, status, is_voucher,
-              current_dept, current_barrio, current_artist, current_person,
+              current_dept, current_group, holder_dept, current_person,
               dept_label, borrowable, borrow_eligible } = lookupData;
 
-      const holder = current_person?.name || current_barrio?.name
-                   || current_artist?.name || current_dept?.name || null;
+      const holder = current_person?.name || current_group?.name
+                   || holder_dept?.name || current_dept?.name || null;
       const statusLabel = formatItemStatus(status, holder, is_voucher);
 
       cardHtml = `
@@ -43,8 +43,15 @@ export function renderScanResult(container, lookupData, perms, onAction) {
       if (!is_voucher) {
         if (['checked-out'].includes(status)) {
           const canReturn = has('checkin_equipment') || has('sub_checkin');
+          const canLend   = has('checkout_equipment') || has('sub_checkout');
           if (canReturn) {
             actionsHtml += actionBtn('Return equipment', 'checkin', lookupData);
+          }
+          if (canLend) {
+            actionsHtml += actionBtn(
+              holder ? `Add to lending list (transfer from ${holder})` : 'Add to lending list',
+              'checkout_start', lookupData
+            );
           }
         }
         if (status === 'available') {
@@ -88,28 +95,30 @@ export function renderScanResult(container, lookupData, perms, onAction) {
       break;
     }
 
-    case 'barrio': {
-      const { name, arrival_status, item_count } = lookupData;
-      const statusLabel = { expected: 'Expected', 'on-site': 'On site', departed: 'Departed' }[arrival_status] ?? arrival_status;
+    case 'group': {
+      const { name, arrival_status, item_count, enable_arrival_tracking } = lookupData;
+      const statusLabel = enable_arrival_tracking
+        ? ({ expected: 'Expected', 'on-site': 'On site', departed: 'Departed' }[arrival_status] ?? arrival_status)
+        : null;
 
       cardHtml = `
         <div class="scan-card">
           <div class="scan-card-icon">⛺</div>
           <div class="scan-card-body">
             <div class="scan-card-name">${esc(name)}</div>
-            <div class="scan-card-sub">${statusLabel}${item_count != null ? ` · ${item_count} item${item_count !== 1 ? 's' : ''} out` : ''}</div>
+            <div class="scan-card-sub">${statusLabel ? statusLabel : ''}${item_count != null ? `${statusLabel ? ' · ' : ''}${item_count} item${item_count !== 1 ? 's' : ''} out` : ''}</div>
           </div>
         </div>`;
 
       if (has('sub_checkout') || has('checkout_equipment')) {
-        actionsHtml += actionBtn('Lend to this barrio', 'entity_select', lookupData, 'primary');
+        actionsHtml += actionBtn('Lend to this group', 'entity_select', lookupData, 'primary');
       }
       break;
     }
 
     case 'department': {
-      const { name, sub_entity, member_count } = lookupData;
-      const subLabel = sub_entity === 'none' ? '' : ` · ${sub_entity} dept`;
+      const { name, manages_groups, member_count } = lookupData;
+      const subLabel = manages_groups ? ' · manages groups' : '';
 
       cardHtml = `
         <div class="scan-card">

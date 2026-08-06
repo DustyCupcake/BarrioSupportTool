@@ -78,12 +78,15 @@ export async function sync(showToast) {
   const pending = await getPending();
   if (!pending.length) return;
 
-  // Flatten to API shape
+  // Replay each queued request as-is (method/path/body) rather than
+  // collapsing it to a single item — that used to silently drop every item
+  // past the first in a multi-item lending batch, and rejected any tier
+  // other than group-level checkout entirely.
   const events = pending.map(e => ({
     client_id:   e.client_id,
-    type:        e.body?.type || (e.path === '/checkout' ? 'checkout' : 'checkin'),
-    item_qr:     e.body?.item_qrs?.[0] ?? e.body?.item_qr,
-    barrio_id:   e.body?.barrio_id,
+    method:      e.method,
+    path:        e.path,
+    body:        e.body,
     occurred_at: e.occurred_at,
   }));
 

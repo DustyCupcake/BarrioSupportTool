@@ -1,9 +1,9 @@
 import { get, post } from '../api.js?v=1.0.1';
 
 const OPERATIONS = [
-    { key: 'release_all',         label: 'Release all equipment',                    desc: 'Clears all holders (dept, barrio, artist, person) and marks everything available. Full end-of-event wipe.' },
-    { key: 'release_barrio',      label: '…barrio level only',                       desc: 'Clears barrio, artist, and person assignments only. Department assignments are preserved.', indent: true },
-    { key: 'reset_barrios',       label: 'Reset barrio arrival statuses',            desc: 'Sets all barrios back to Expected. Clears arrived/departed timestamps and orientation flags.' },
+    { key: 'release_all',         label: 'Release all equipment',                    desc: 'Clears all holders (dept, group, person) and marks everything available. Full end-of-event wipe.' },
+    { key: 'release_barrio',      label: '…group level only',                        desc: 'Clears group and person assignments only. Department assignments are preserved.', indent: true },
+    { key: 'reset_barrios',       label: 'Reset group arrival statuses',             desc: 'Sets all arrival-tracking groups back to Expected. Clears arrived/departed timestamps and orientation flags.' },
     { key: 'clear_distributions', label: 'Clear consumable distributions',           desc: 'Resets distributed counts to zero and deletes the distribution event log. Purchased entitlements are preserved.' },
     { key: 'clear_fill_queue',    label: 'Clear water fill queue',                   desc: 'Cancels all pending and in-progress fill requests.' },
     { key: 'clear_item_notes',    label: 'Clear equipment notes',                    desc: 'Removes all free-text notes from equipment items.' },
@@ -143,7 +143,7 @@ export async function initReset(el, toast) {
             const lines = [`Event <strong>${esc(res.event.name)}</strong> is now active.`];
             const c = res.counts ?? {};
             if (c.equipment_released          != null) lines.push(`${c.equipment_released} items released.`);
-            if (c.barrios_reset               != null) lines.push(`${c.barrios_reset} barrios reset.`);
+            if (c.barrios_reset               != null) lines.push(`${c.barrios_reset} groups reset.`);
             if (c.entitlements_cleared        != null) lines.push(`Consumable distributions cleared.`);
             if (c.fill_requests_cleared       != null) lines.push(`${c.fill_requests_cleared} fill requests cleared.`);
             if (c.items_notes_cleared         != null) lines.push(`${c.items_notes_cleared} item notes cleared.`);

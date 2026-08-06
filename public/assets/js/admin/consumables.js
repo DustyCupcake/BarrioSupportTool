@@ -18,7 +18,7 @@ function render(container) {
     <div class="page-header">
       <div>
         <div class="page-title">Consumable Types</div>
-        <div class="page-subtitle">Define item kinds that barrios can purchase (water vouchers, ice tokens, etc.)</div>
+        <div class="page-subtitle">Define item kinds that groups can purchase (water vouchers, ice tokens, etc.)</div>
       </div>
       <button class="btn primary sm" onclick="window._consumables.openAdd()">+ Add type</button>
     </div>

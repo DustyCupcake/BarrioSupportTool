@@ -96,8 +96,8 @@ function showBarrioSection() {
     res.innerHTML = '<div style="font-size:13px;color:var(--text3)">Searching…</div>';
     try {
       if (!_allBarrios) {
-        const data = await get('/barrios');
-        _allBarrios = data.barrios || [];
+        const data = await get('/groups');
+        _allBarrios = data.groups || [];
       }
       const matches = _allBarrios.filter(b => b.name.toLowerCase().includes(q)).slice(0, 8);
       if (!matches.length) {
@@ -156,7 +156,7 @@ async function lookupBarrioByQr(qr, sect) {
   try {
     // Use the scan/lookup endpoint which handles entity QRs
     const data = await get('/scan/lookup', { qr });
-    if (data?.type === 'barrio' && data.id) {
+    if (data?.type === 'group' && data.id) {
       if (res) res.innerHTML = '';
       loadBarrioDetail(data.id);
     } else {
@@ -172,7 +172,7 @@ async function loadBarrioDetail(barrio_id) {
   detail.innerHTML = '<div style="font-size:13px;color:var(--text3);padding:.5rem 0">Loading…</div>';
 
   try {
-    const data = await get(`/barrios/${barrio_id}/cubes`);
+    const data = await get(`/groups/${barrio_id}/cubes`);
     renderBarrioDetail(data, detail);
   } catch (e) {
     detail.innerHTML = `<div style="font-size:13px;color:var(--warn)">Failed to load barrio details</div>`;
@@ -180,7 +180,7 @@ async function loadBarrioDetail(barrio_id) {
 }
 
 function renderBarrioDetail(data, container) {
-  const { barrio, cubes, credits_available, credits_purchased, credits_used, active_request } = data;
+  const { barrio, group, cubes, credits_available, credits_purchased, credits_used, active_request } = data;
   const maxRequest = Math.min(cubes.length, credits_available);
 
   if (active_request) {

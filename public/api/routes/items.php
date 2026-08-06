@@ -10,7 +10,7 @@ function handle_lookup(): void {
 
     $stmt = db()->prepare(
         'SELECT i.id, i.qr_code, i.status, i.notes, i.equipment_type_id,
-                i.dept_label, i.current_dept_id, i.current_barrio_id, i.current_artist_id, i.current_person_id,
+                i.dept_label, i.owning_dept_id, i.holder_type, i.holder_id,
                 i.current_location_id,
                 i.latitude AS item_lat, i.longitude AS item_lng,
                 i.home_location_id AS item_home_loc_id,
@@ -21,9 +21,9 @@ function handle_lookup(): void {
                 t.home_location_id AS type_home_loc_id,
                 t.require_home_location AS type_require_home,
                 t.require_any_location AS type_require_any,
-                b.id AS barrio_id, b.name AS barrio_name,
+                hg.id AS group_id, hg.name AS group_name,
                 d.id AS dept_id, d.name AS dept_name,
-                a.id AS artist_id, a.name AS artist_name,
+                hd.id AS holder_dept_id, hd.name AS holder_dept_name,
                 p.id AS person_id, p.display_name AS person_name,
                 cl.name AS current_location_name,
                 hl.id AS eff_home_loc_id, hl.name AS home_location_name,
@@ -31,10 +31,10 @@ function handle_lookup(): void {
                 CONCAT(t.name, " #", i.item_number) AS display_name
          FROM equipment_items i
          JOIN equipment_types t ON t.id = i.equipment_type_id
-         LEFT JOIN barrios b ON b.id = i.current_barrio_id
-         LEFT JOIN departments d ON d.id = i.current_dept_id
-         LEFT JOIN artists a ON a.id = i.current_artist_id
-         LEFT JOIN users p ON p.id = i.current_person_id
+         LEFT JOIN departments d ON d.id = i.owning_dept_id
+         LEFT JOIN groups hg ON hg.id = i.holder_id AND i.holder_type = "group"
+         LEFT JOIN departments hd ON hd.id = i.holder_id AND i.holder_type = "department"
+         LEFT JOIN users p ON p.id = i.holder_id AND i.holder_type = "person"
          LEFT JOIN storage_locations cl ON cl.id = i.current_location_id
          LEFT JOIN storage_locations hl ON hl.id = COALESCE(i.home_location_id, t.home_location_id)
          WHERE i.qr_code = ?'
@@ -88,11 +88,12 @@ function handle_lookup(): void {
         'current_dept'         => $item['dept_id']
             ? ['id' => (int)$item['dept_id'], 'name' => $item['dept_name']]
             : null,
-        'current_barrio'       => $item['barrio_id']
-            ? ['id' => (int)$item['barrio_id'], 'name' => $item['barrio_name']]
+        'holder_type'           => $item['holder_type'],
+        'holder_dept'           => $item['holder_dept_id']
+            ? ['id' => (int)$item['holder_dept_id'], 'name' => $item['holder_dept_name']]
             : null,
-        'current_artist'       => $item['artist_id']
-            ? ['id' => (int)$item['artist_id'], 'name' => $item['artist_name']]
+        'current_group'         => $item['group_id']
+            ? ['id' => (int)$item['group_id'], 'name' => $item['group_name']]
             : null,
         'current_person'       => $item['person_id']
             ? ['id' => (int)$item['person_id'], 'name' => $item['person_name']]
@@ -141,13 +142,11 @@ function handle_inventory(): void {
                 CONCAT(t.name, ' #', i.item_number) AS name,
                 t.category,
                 d.name AS current_dept,
-                b.name AS current_barrio,
-                a.name AS current_artist
+                hg.name AS current_group
          FROM equipment_items i
          JOIN equipment_types t ON t.id = i.equipment_type_id
-         LEFT JOIN departments d ON d.id = i.current_dept_id
-         LEFT JOIN barrios b ON b.id = i.current_barrio_id
-         LEFT JOIN artists a ON a.id = i.current_artist_id
+         LEFT JOIN departments d ON d.id = i.owning_dept_id
+         LEFT JOIN groups hg ON hg.id = i.holder_id AND i.holder_type = 'group'
          $where
          ORDER BY t.name, i.item_number"
     );
@@ -608,8 +607,8 @@ function handle_delete_item_photo_gallery(): void {
 //
 // Two ways to be authorized:
 //   - update_item_location: can set the location of any item
-//   - request_fills: a barrio-identify session (see handle_barrio_identify) can set
-//     the location of a water cube currently checked out to its own barrio only
+//   - request_fills: a group-identify session (see handle_barrio_identify) can set
+//     the location of a water cube currently checked out to its own group only
 function handle_update_item_location(): void {
     require_method('POST');
     $user = require_auth();
@@ -625,7 +624,7 @@ function handle_update_item_location(): void {
     }
 
     $stmt = db()->prepare(
-        'SELECT i.id, i.current_barrio_id, t.category
+        'SELECT i.id, i.holder_type, i.holder_id, t.category
          FROM equipment_items i
          JOIN equipment_types t ON t.id = i.equipment_type_id
          WHERE i.qr_code = ?'
@@ -636,8 +635,9 @@ function handle_update_item_location(): void {
 
     $can_set_own_cube = has_permission('request_fills')
         && $item['category'] === 'water_cube'
-        && !empty($user['barrio_id'])
-        && (int)$item['current_barrio_id'] === (int)$user['barrio_id'];
+        && !empty($user['group_id'])
+        && $item['holder_type'] === 'group'
+        && (int)$item['holder_id'] === (int)$user['group_id'];
 
     if (!has_permission('update_item_location') && !$can_set_own_cube) {
         json_error('Forbidden', 403);

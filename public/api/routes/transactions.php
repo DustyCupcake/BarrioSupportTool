@@ -30,7 +30,7 @@ function handle_checkout(): void {
         foreach ($item_qrs as $qr) {
             $qr   = (string)$qr;
             $stmt = $pdo->prepare(
-                'SELECT id, status, current_dept_id, current_barrio_id, current_artist_id
+                'SELECT id, status, owning_dept_id, holder_type, holder_id
                  FROM equipment_items WHERE qr_code = ? FOR UPDATE'
             );
             $stmt->execute([$qr]);
@@ -42,7 +42,7 @@ function handle_checkout(): void {
             }
 
             if ($item['status'] === 'checked-out' && !$force) {
-                $loc = _item_location_label($pdo, $item);
+                $loc = item_holder_label($pdo, $item);
                 $results[] = ['qr' => $qr, 'success' => false, 'error' => 'already_checked_out', 'location' => $loc];
                 continue;
             }
@@ -52,17 +52,11 @@ function handle_checkout(): void {
                 continue;
             }
 
-            $pdo->prepare(
-                'UPDATE equipment_items
-                 SET status = "checked-out", current_dept_id = ?, dept_label = ?,
-                     current_barrio_id = NULL, current_artist_id = NULL
-                 WHERE id = ?'
-            )->execute([$dept_id, $dept_label ?: null, $item['id']]);
+            assign_item_holder($pdo, (int)$item['id'], 'department', $dept_id,
+                $dept_id, false, $dept_label ?: null, false);
 
-            $pdo->prepare(
-                'INSERT INTO transactions (type, item_id, dept_id, performed_by, user_name_cache, occurred_at)
-                 VALUES ("checkout", ?, ?, ?, ?, ?)'
-            )->execute([$item['id'], $dept_id, $user['id'], $user['display_name'], $now]);
+            insert_holder_transaction($pdo, 'checkout', (int)$item['id'], $dept_id,
+                'department', $dept_id, (int)$user['id'], $user['display_name'], $now);
 
             $results[] = ['qr' => $qr, 'success' => true];
         }
@@ -76,7 +70,7 @@ function handle_checkout(): void {
     json_ok(['results' => $results]);
 }
 
-// Department lending equipment to a barrio or artist
+// Department lending equipment to a group
 function handle_sub_checkout(): void {
     require_method('POST');
     $user = require_permission('sub_checkout');
@@ -84,38 +78,38 @@ function handle_sub_checkout(): void {
 
     $b                   = body();
     $dept_id             = (int)($b['dept_id'] ?? 0);
-    $barrio_id           = isset($b['barrio_id'])  ? (int)$b['barrio_id']  : null;
-    $artist_id           = isset($b['artist_id'])  ? (int)$b['artist_id']  : null;
+    $group_id            = isset($b['group_id']) ? (int)$b['group_id'] : null;
     $item_qrs            = $b['item_qrs'] ?? [];
     $force               = !empty($b['force']);
     $dept_label          = isset($b['dept_label']) ? trim($b['dept_label']) : null;
     $latitude            = isset($b['latitude'])   ? (float)$b['latitude']  : null;
     $longitude           = isset($b['longitude'])  ? (float)$b['longitude'] : null;
-    $apply_barrio_location = array_key_exists('apply_barrio_location', $b)
-        ? !empty($b['apply_barrio_location']) : true;
+    $apply_group_location = array_key_exists('apply_barrio_location', $b)
+        ? !empty($b['apply_barrio_location'])
+        : (array_key_exists('apply_group_location', $b) ? !empty($b['apply_group_location']) : true);
 
     $production = has_permission('checkout_equipment');
 
     if (!$dept_id && !$production) {
         json_error('dept_id required');
     }
-    if ((!$barrio_id && !$artist_id) || empty($item_qrs) || !is_array($item_qrs)) {
-        json_error('one of barrio_id/artist_id, and item_qrs required');
+    if (!$group_id || empty($item_qrs) || !is_array($item_qrs)) {
+        json_error('group_id and item_qrs required');
     }
 
     if (!$production) {
         require_dept_access($dept_id);
     }
 
-    // If no explicit GPS was captured, fall back to the barrio's storage location —
-    // but only when it's unambiguous (exactly one location on file for that barrio).
-    $barrio_location_applied = false;
-    if ($barrio_id && $apply_barrio_location && $latitude === null && $longitude === null) {
-        $loc = get_barrio_location(db(), $barrio_id);
+    // If no explicit GPS was captured, fall back to the group's storage location —
+    // but only when it's unambiguous (exactly one location on file for that group).
+    $group_location_applied = false;
+    if ($group_id && $apply_group_location && $latitude === null && $longitude === null) {
+        $loc = get_group_location(db(), $group_id);
         if ($loc) {
             $latitude  = $loc['latitude'];
             $longitude = $loc['longitude'];
-            $barrio_location_applied = true;
+            $group_location_applied = true;
         }
     }
 
@@ -128,7 +122,7 @@ function handle_sub_checkout(): void {
         foreach ($item_qrs as $qr) {
             $qr   = (string)$qr;
             $stmt = $pdo->prepare(
-                'SELECT id, status, current_dept_id, current_barrio_id, current_artist_id
+                'SELECT id, status, owning_dept_id, holder_type, holder_id
                  FROM equipment_items WHERE qr_code = ? FOR UPDATE'
             );
             $stmt->execute([$qr]);
@@ -139,32 +133,20 @@ function handle_sub_checkout(): void {
                 continue;
             }
 
-            // Use item's current dept if already assigned, otherwise use the user's dept
-            $effective_dept_id = (int)$item['current_dept_id'] ?: $dept_id;
+            // Use item's owning dept if already assigned, otherwise use the user's dept
+            $effective_dept_id = (int)$item['owning_dept_id'] ?: $dept_id;
 
-            if (($item['current_barrio_id'] || $item['current_artist_id']) && !$force) {
+            if ($item['holder_type'] === 'group' && !$force) {
                 $results[] = ['qr' => $qr, 'success' => false, 'error' => 'already_sub_lent'];
                 continue;
             }
 
-            $pdo->prepare(
-                'UPDATE equipment_items
-                 SET status = "checked-out",
-                     current_dept_id = COALESCE(current_dept_id, ?),
-                     current_barrio_id = ?, current_artist_id = ?, dept_label = COALESCE(?, dept_label),
-                     latitude  = COALESCE(?, latitude),
-                     longitude = COALESCE(?, longitude)
-                 WHERE id = ?'
-            )->execute([$effective_dept_id ?: null, $barrio_id, $artist_id, $dept_label ?: null, $latitude, $longitude, $item['id']]);
+            assign_item_holder($pdo, (int)$item['id'], 'group', $group_id,
+                $effective_dept_id ?: null, true, $dept_label ?: null, true,
+                $latitude, $longitude);
 
-            $pdo->prepare(
-                'INSERT INTO transactions (type, item_id, dept_id, barrio_id, artist_id,
-                                           performed_by, user_name_cache, occurred_at)
-                 VALUES ("sub_checkout", ?, ?, ?, ?, ?, ?, ?)'
-            )->execute([
-                $item['id'], $effective_dept_id ?: null, $barrio_id, $artist_id,
-                $user['id'], $user['display_name'], $now,
-            ]);
+            insert_holder_transaction($pdo, 'sub_checkout', (int)$item['id'], $effective_dept_id ?: null,
+                'group', $group_id, (int)$user['id'], $user['display_name'], $now);
 
             $results[] = ['qr' => $qr, 'success' => true];
         }
@@ -176,8 +158,9 @@ function handle_sub_checkout(): void {
     }
 
     json_ok([
-        'results'                 => $results,
-        'barrio_location_applied' => $barrio_location_applied,
+        'results'                => $results,
+        'barrio_location_applied' => $group_location_applied,
+        'group_location_applied'  => $group_location_applied,
     ]);
 }
 
@@ -194,7 +177,7 @@ function handle_checkin(): void {
     if ($item_qr === '') json_error('item_qr required');
 
     $stmt = db()->prepare(
-        'SELECT i.id, i.status, i.current_dept_id, i.current_barrio_id, i.current_artist_id, i.current_person_id,
+        'SELECT i.id, i.status, i.owning_dept_id, i.holder_type, i.holder_id,
                 i.home_location_id AS item_home_location_id,
                 i.require_home_location AS item_require_home,
                 i.require_any_location AS item_require_any,
@@ -255,15 +238,14 @@ function handle_checkin(): void {
         json_error('Scan a storage location QR to return this item', 422);
     }
 
-    $dept_id      = $item['current_dept_id']    ? (int)$item['current_dept_id']    : null;
-    $barrio_id    = $item['current_barrio_id']  ? (int)$item['current_barrio_id']  : null;
-    $artist_id    = $item['current_artist_id']  ? (int)$item['current_artist_id']  : null;
-    $person_id    = $item['current_person_id']  ? (int)$item['current_person_id']  : null;
+    $dept_id     = $item['owning_dept_id'] ? (int)$item['owning_dept_id'] : null;
+    $holder_type = $item['holder_type'];
+    $holder_id   = $item['holder_id'] ? (int)$item['holder_id'] : null;
 
-    // Sub-lent = in dept pool then further lent to barrio/artist/person
-    $is_sub_lent  = (bool)($barrio_id || $artist_id || ($person_id && $dept_id));
+    // Sub-lent = in dept pool then further lent to a group, or to a person from a dept pool
+    $is_sub_lent    = $holder_type === 'group' || ($holder_type === 'person' && $dept_id);
     // Person-from-production = no dept, just person
-    $is_person_prod = $person_id && !$dept_id;
+    $is_person_prod = $holder_type === 'person' && !$dept_id;
 
     // Permission check
     if ($is_sub_lent || $is_person_prod) {
@@ -285,41 +267,53 @@ function handle_checkin(): void {
     $pdo->beginTransaction();
     try {
         if ($is_person_prod) {
+            set_item_holder($pdo, (int)$item['id'], null, null, 'available', $location_id);
             $pdo->prepare(
-                'UPDATE equipment_items
-                 SET status = "available", current_person_id = NULL, dept_label = NULL,
-                     current_location_id = ?
-                 WHERE id = ?'
-            )->execute([$location_id, $item['id']]);
+                'UPDATE equipment_items SET dept_label = NULL WHERE id = ?'
+            )->execute([$item['id']]);
 
             $pdo->prepare(
-                'INSERT INTO transactions (type, item_id, person_id, location_id, performed_by, user_name_cache, occurred_at)
-                 VALUES ("person_checkin", ?, ?, ?, ?, ?, NOW())'
-            )->execute([$item['id'], $person_id, $location_id, $user['id'], $user['display_name']]);
+                'INSERT INTO transactions (type, item_id, holder_type, holder_id, location_id, performed_by, user_name_cache, occurred_at)
+                 VALUES ("person_checkin", ?, "person", ?, ?, ?, ?, NOW())'
+            )->execute([$item['id'], $holder_id, $location_id, $user['id'], $user['display_name']]);
 
         } elseif ($is_sub_lent) {
-            $pdo->prepare(
-                'UPDATE equipment_items
-                 SET current_barrio_id = NULL, current_artist_id = NULL, current_person_id = NULL,
-                     current_location_id = ?
-                 WHERE id = ?'
-            )->execute([$location_id, $item['id']]);
+            if ($dept_id) {
+                // Returns to dept-held state (status/owning_dept_id untouched) — matching the
+                // pre-holder-model behavior where sub_checkin cleared only barrio/artist/person,
+                // leaving the item checked out to its owning department rather than fully available.
+                $pdo->prepare(
+                    'UPDATE equipment_items
+                     SET holder_type = "department", holder_id = owning_dept_id,
+                         current_location_id = ?
+                     WHERE id = ?'
+                )->execute([$location_id, $item['id']]);
+            } else {
+                // No owning department (production lent this directly to a group/person) —
+                // there's no dept pool to return it to, so it goes straight back to available.
+                // Without this branch, holder_type would be set to 'department' with a NULL
+                // holder_id (owning_dept_id is null here), violating the holder/status trigger.
+                set_item_holder($pdo, (int)$item['id'], null, null, 'available', $location_id);
+                $pdo->prepare(
+                    'UPDATE equipment_items SET dept_label = NULL WHERE id = ?'
+                )->execute([$item['id']]);
+            }
 
-            $tx_type = $person_id ? 'person_checkin' : 'sub_checkin';
+            $tx_type = $holder_type === 'person' ? 'person_checkin' : 'sub_checkin';
             $pdo->prepare(
-                'INSERT INTO transactions (type, item_id, dept_id, barrio_id, artist_id, person_id,
+                'INSERT INTO transactions (type, item_id, dept_id, holder_type, holder_id,
                                            location_id, performed_by, user_name_cache, occurred_at)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())'
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())'
             )->execute([
-                $tx_type, $item['id'], $dept_id, $barrio_id, $artist_id, $person_id,
+                $tx_type, $item['id'], $dept_id, $holder_type, $holder_id,
                 $location_id, $user['id'], $user['display_name'],
             ]);
 
         } else {
             $pdo->prepare(
                 'UPDATE equipment_items
-                 SET status = "available", current_dept_id = NULL, dept_label = NULL,
-                     current_barrio_id = NULL, current_artist_id = NULL, current_person_id = NULL,
+                 SET status = "available", owning_dept_id = NULL, dept_label = NULL,
+                     holder_type = NULL, holder_id = NULL,
                      current_location_id = ?
                  WHERE id = ?'
             )->execute([$location_id, $item['id']]);
@@ -348,10 +342,10 @@ function handle_person_checkout(): void {
     // Allow: staff with checkout_equipment OR person with person_borrow (self-checkout)
     $is_self_checkout = false;
     if (has_permission('person_borrow') && !has_permission('checkout_equipment')) {
-        require_permission('person_borrow');
+        $user = require_permission('person_borrow');
         $is_self_checkout = true;
     } else {
-        require_permission('checkout_equipment');
+        $user = require_permission('checkout_equipment');
     }
 
     $b          = body();
@@ -384,7 +378,7 @@ function handle_person_checkout(): void {
         foreach ($item_qrs as $qr) {
             $qr   = (string)$qr;
             $stmt = $pdo->prepare(
-                'SELECT id, status, current_dept_id, current_barrio_id, current_artist_id, current_person_id
+                'SELECT id, status, owning_dept_id, holder_type, holder_id
                  FROM equipment_items WHERE qr_code = ? FOR UPDATE'
             );
             $stmt->execute([$qr]);
@@ -396,7 +390,7 @@ function handle_person_checkout(): void {
             }
             if ($item['status'] === 'checked-out' && !$force) {
                 $results[] = ['qr' => $qr, 'success' => false, 'error' => 'already_checked_out',
-                              'location' => _item_location_label($pdo, $item)];
+                              'location' => item_holder_label($pdo, $item)];
                 continue;
             }
             if (!in_array($item['status'], ['available', 'checked-out'], true)) {
@@ -432,17 +426,11 @@ function handle_person_checkout(): void {
                 continue;
             }
 
-            $pdo->prepare(
-                'UPDATE equipment_items
-                 SET status = "checked-out", current_person_id = ?, dept_label = ?,
-                     current_dept_id = NULL, current_barrio_id = NULL, current_artist_id = NULL
-                 WHERE id = ?'
-            )->execute([(int)$person['id'], $dept_label ?: null, $item['id']]);
+            assign_item_holder($pdo, (int)$item['id'], 'person', (int)$person['id'],
+                null, false, $dept_label ?: null, false);
 
-            $pdo->prepare(
-                'INSERT INTO transactions (type, item_id, person_id, performed_by, user_name_cache, occurred_at)
-                 VALUES ("person_checkout", ?, ?, ?, ?, ?)'
-            )->execute([$item['id'], (int)$person['id'], $user['id'], $user['display_name'], $now]);
+            insert_holder_transaction($pdo, 'person_checkout', (int)$item['id'], null,
+                'person', (int)$person['id'], (int)$user['id'], $user['display_name'], $now);
 
             $results[] = ['qr' => $qr, 'success' => true];
         }
@@ -493,7 +481,7 @@ function handle_sub_person_checkout(): void {
         foreach ($item_qrs as $qr) {
             $qr   = (string)$qr;
             $stmt = $pdo->prepare(
-                'SELECT id, status, current_dept_id, current_barrio_id, current_artist_id, current_person_id
+                'SELECT id, status, owning_dept_id, holder_type, holder_id
                  FROM equipment_items WHERE qr_code = ? FOR UPDATE'
             );
             $stmt->execute([$qr]);
@@ -503,7 +491,7 @@ function handle_sub_person_checkout(): void {
                 $results[] = ['qr' => $qr, 'success' => false, 'error' => 'not_found'];
                 continue;
             }
-            if (($item['current_barrio_id'] || $item['current_artist_id'] || $item['current_person_id']) && !$force) {
+            if ($item['holder_type'] && !$force) {
                 $results[] = ['qr' => $qr, 'success' => false, 'error' => 'already_sub_lent'];
                 continue;
             }
@@ -534,19 +522,11 @@ function handle_sub_person_checkout(): void {
                 continue;
             }
 
-            $pdo->prepare(
-                'UPDATE equipment_items
-                 SET status = "checked-out",
-                     current_dept_id = COALESCE(current_dept_id, ?),
-                     current_person_id = ?, dept_label = COALESCE(?, dept_label),
-                     current_barrio_id = NULL, current_artist_id = NULL
-                 WHERE id = ?'
-            )->execute([$dept_id ?: null, (int)$person['id'], $dept_label ?: null, $item['id']]);
+            assign_item_holder($pdo, (int)$item['id'], 'person', (int)$person['id'],
+                $dept_id ?: null, true, $dept_label ?: null, true);
 
-            $pdo->prepare(
-                'INSERT INTO transactions (type, item_id, dept_id, person_id, performed_by, user_name_cache, occurred_at)
-                 VALUES ("person_checkout", ?, ?, ?, ?, ?, ?)'
-            )->execute([$item['id'], $dept_id, (int)$person['id'], $user['id'], $user['display_name'], $now]);
+            insert_holder_transaction($pdo, 'person_checkout', (int)$item['id'], $dept_id,
+                'person', (int)$person['id'], (int)$user['id'], $user['display_name'], $now);
 
             $results[] = ['qr' => $qr, 'success' => true];
         }
@@ -573,7 +553,7 @@ function handle_set_label(): void {
     if ($item_qr === '') json_error('item_qr required');
 
     $stmt = db()->prepare(
-        'SELECT id, current_dept_id FROM equipment_items WHERE qr_code = ? AND status = "checked-out"'
+        'SELECT id, owning_dept_id FROM equipment_items WHERE qr_code = ? AND status = "checked-out"'
     );
     $stmt->execute([$item_qr]);
     $item = $stmt->fetch();
@@ -581,8 +561,8 @@ function handle_set_label(): void {
     if (!$item) json_error('Item not found or not checked out', 404);
 
     // Verify dept access for non-production users
-    if (!has_permission('checkout_equipment') && $item['current_dept_id']) {
-        require_dept_access((int)$item['current_dept_id']);
+    if (!has_permission('checkout_equipment') && $item['owning_dept_id']) {
+        require_dept_access((int)$item['owning_dept_id']);
     }
 
     db()->prepare(
@@ -603,7 +583,7 @@ function handle_used(): void {
     if ($item_qr === '') json_error('item_qr required');
 
     $stmt = db()->prepare(
-        'SELECT i.id, i.status, i.current_barrio_id, i.current_dept_id, t.secure_qr
+        'SELECT i.id, i.status, i.holder_type, i.holder_id, i.owning_dept_id, t.secure_qr
          FROM equipment_items i
          JOIN equipment_types t ON t.id = i.equipment_type_id
          WHERE i.qr_code = ?'
@@ -618,18 +598,24 @@ function handle_used(): void {
         return;
     }
 
+    $group_holder_id = $item['holder_type'] === 'group' ? $item['holder_id'] : null;
+
     $pdo = db();
     $pdo->beginTransaction();
     try {
+        // 'used' is a voucher-lifecycle status, not a release — the item keeps
+        // its current holder (the trigger requires a non-null holder for any
+        // status other than available/retired), only the status changes.
         $pdo->prepare(
-            'UPDATE equipment_items SET status = "used", current_barrio_id = NULL WHERE id = ?'
+            'UPDATE equipment_items SET status = "used" WHERE id = ?'
         )->execute([$item['id']]);
 
         $pdo->prepare(
-            'INSERT INTO transactions (type, item_id, dept_id, barrio_id, performed_by, user_name_cache, occurred_at)
-             VALUES ("used", ?, ?, ?, ?, ?, NOW())'
+            'INSERT INTO transactions (type, item_id, dept_id, holder_type, holder_id, performed_by, user_name_cache, occurred_at)
+             VALUES ("used", ?, ?, ?, ?, ?, ?, NOW())'
         )->execute([
-            $item['id'], $item['current_dept_id'], $item['current_barrio_id'],
+            $item['id'], $item['owning_dept_id'],
+            $group_holder_id ? 'group' : null, $group_holder_id,
             $user['id'], $user['display_name'],
         ]);
 
@@ -665,7 +651,7 @@ function handle_fill_confirm(): void {
         foreach ($item_qrs as $qr) {
             $qr   = (string)$qr;
             $stmt = $pdo->prepare(
-                'SELECT i.id, i.status, i.current_barrio_id, i.current_dept_id, t.secure_qr
+                'SELECT i.id, i.status, i.holder_type, i.holder_id, i.owning_dept_id, t.secure_qr
                  FROM equipment_items i
                  JOIN equipment_types t ON t.id = i.equipment_type_id
                  WHERE i.qr_code = ?'
@@ -675,11 +661,14 @@ function handle_fill_confirm(): void {
 
             if (!$item || !$item['secure_qr'] || $item['status'] !== 'used') continue;
 
+            $group_holder_id = $item['holder_type'] === 'group' ? $item['holder_id'] : null;
+
             $pdo->prepare(
-                'INSERT INTO transactions (type, item_id, dept_id, barrio_id, performed_by, user_name_cache, occurred_at, notes)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+                'INSERT INTO transactions (type, item_id, dept_id, holder_type, holder_id, performed_by, user_name_cache, occurred_at, notes)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)'
             )->execute([
-                $type, $item['id'], $item['current_dept_id'], $item['current_barrio_id'],
+                $type, $item['id'], $item['owning_dept_id'],
+                $group_holder_id ? 'group' : null, $group_holder_id,
                 $user['id'], $user['display_name'], $now, $notes ?: null,
             ]);
         }
@@ -704,12 +693,12 @@ function handle_activate(): void {
     if ($item_qr === '') json_error('item_qr required');
 
     $stmt = db()->prepare(
-        'SELECT i.id, i.status, i.current_barrio_id, i.current_dept_id, t.secure_qr,
+        'SELECT i.id, i.status, i.holder_type, i.holder_id, i.owning_dept_id, t.secure_qr,
                 CONCAT(t.name, " #", i.item_number) AS display_name,
-                b.name AS barrio_name
+                g.name AS group_name
          FROM equipment_items i
          JOIN equipment_types t ON t.id = i.equipment_type_id
-         LEFT JOIN barrios b ON b.id = i.current_barrio_id
+         LEFT JOIN groups g ON g.id = i.holder_id AND i.holder_type = "group"
          WHERE i.qr_code = ?'
     );
     $stmt->execute([$item_qr]);
@@ -720,13 +709,15 @@ function handle_activate(): void {
 
     if ($item['status'] === 'activated') {
         json_ok(['success' => false, 'error' => 'already_activated',
-                 'name' => $item['display_name'], 'barrio' => $item['barrio_name']]);
+                 'name' => $item['display_name'], 'barrio' => $item['group_name'], 'group' => $item['group_name']]);
         return;
     }
     if ($item['status'] !== 'checked-out') {
         json_ok(['success' => false, 'error' => 'not_checked_out', 'name' => $item['display_name']]);
         return;
     }
+
+    $group_holder_id = $item['holder_type'] === 'group' ? $item['holder_id'] : null;
 
     $pdo = db();
     $pdo->beginTransaction();
@@ -736,10 +727,11 @@ function handle_activate(): void {
         )->execute([$item['id']]);
 
         $pdo->prepare(
-            'INSERT INTO transactions (type, item_id, dept_id, barrio_id, performed_by, user_name_cache, occurred_at)
-             VALUES ("activated", ?, ?, ?, ?, ?, NOW())'
+            'INSERT INTO transactions (type, item_id, dept_id, holder_type, holder_id, performed_by, user_name_cache, occurred_at)
+             VALUES ("activated", ?, ?, ?, ?, ?, ?, NOW())'
         )->execute([
-            $item['id'], $item['current_dept_id'], $item['current_barrio_id'],
+            $item['id'], $item['owning_dept_id'],
+            $group_holder_id ? 'group' : null, $group_holder_id,
             $user['id'], $user['display_name'],
         ]);
 
@@ -749,34 +741,5 @@ function handle_activate(): void {
         json_error('Database error: ' . $e->getMessage(), 500);
     }
 
-    json_ok(['success' => true, 'name' => $item['display_name'], 'barrio' => $item['barrio_name']]);
-}
-
-// Helper: build human-readable current location label for an item
-function _item_location_label(object $pdo, array $item): string {
-    if (!empty($item['current_person_id'])) {
-        $r_stmt = $pdo->prepare('SELECT display_name FROM users WHERE id = ?');
-        $r_stmt->execute([$item['current_person_id']]);
-        $r = $r_stmt->fetch();
-        return $r ? $r['display_name'] : 'unknown person';
-    }
-    if (!empty($item['current_barrio_id'])) {
-        $r_stmt = $pdo->prepare('SELECT name FROM barrios WHERE id = ?');
-        $r_stmt->execute([$item['current_barrio_id']]);
-        $r = $r_stmt->fetch();
-        return $r ? $r['name'] : 'unknown barrio';
-    }
-    if (!empty($item['current_artist_id'])) {
-        $r_stmt = $pdo->prepare('SELECT name FROM artists WHERE id = ?');
-        $r_stmt->execute([$item['current_artist_id']]);
-        $r = $r_stmt->fetch();
-        return $r ? $r['name'] : 'unknown artist';
-    }
-    if (!empty($item['current_dept_id'])) {
-        $r_stmt = $pdo->prepare('SELECT name FROM departments WHERE id = ?');
-        $r_stmt->execute([$item['current_dept_id']]);
-        $r = $r_stmt->fetch();
-        return $r ? $r['name'] : 'unknown dept';
-    }
-    return 'unknown';
+    json_ok(['success' => true, 'name' => $item['display_name'], 'barrio' => $item['group_name'], 'group' => $item['group_name']]);
 }

@@ -5,7 +5,7 @@ declare(strict_types=1);
 
 function handle_list_types(): void {
     require_method('GET');
-    require_admin();
+    require_manage_users();
 
     $rows = db()->query(
         'SELECT t.id, t.name, t.category, t.secure_qr, t.borrowable, t.is_crate, t.deployment_destination,
@@ -55,7 +55,7 @@ function handle_list_types(): void {
 
 function handle_create_type(): void {
     require_method('POST');
-    require_admin();
+    require_manage_users();
     verify_csrf();
 
     $b                    = body();
@@ -89,7 +89,7 @@ function handle_create_type(): void {
 
 function handle_update_type(): void {
     require_method('PUT');
-    require_admin();
+    require_manage_users();
     verify_csrf();
 
     $b                    = body();
@@ -137,7 +137,7 @@ function handle_update_type(): void {
 
 function handle_delete_type(): void {
     require_method('DELETE');
-    require_admin();
+    require_manage_users();
     verify_csrf();
 
     $b  = body();
@@ -158,7 +158,7 @@ function handle_delete_type(): void {
 
 function handle_list_items(): void {
     require_method('GET');
-    require_admin();
+    require_manage_users();
 
     $type_id = (int)($_GET['type_id'] ?? 0);
     $status  = $_GET['status'] ?? null;
@@ -180,11 +180,12 @@ function handle_list_items(): void {
                 i.spec_values, i.photo,
                 t.id AS type_id, t.name AS type_name, t.category,
                 CONCAT(t.name, ' #', i.item_number) AS display_name,
-                b.name AS current_barrio,
+                hg.name AS current_barrio,
+                hg.name AS current_group,
                 hl.name AS home_location_name
          FROM equipment_items i
          JOIN equipment_types t ON t.id = i.equipment_type_id
-         LEFT JOIN barrios b    ON b.id = i.current_barrio_id
+         LEFT JOIN groups hg    ON hg.id = i.holder_id AND i.holder_type = 'group'
          LEFT JOIN storage_locations hl ON hl.id = i.home_location_id
          $whereSQL
          ORDER BY t.name, i.item_number"
@@ -208,7 +209,7 @@ function handle_list_items(): void {
 
 function handle_create_items(): void {
     require_method('POST');
-    require_admin();
+    require_manage_users();
     verify_csrf();
 
     $b         = body();
@@ -277,6 +278,12 @@ function handle_create_items(): void {
     json_ok(['created' => $created], 201);
 }
 
+// NOTE: this endpoint can set `status` directly without touching holder_type/holder_id.
+// If that combination would violate the equipment_items holder/status consistency trigger
+// (e.g. setting status to "checked-out" on an item with no holder, or to "available"/"retired"
+// on an item that still has one), the UPDATE below throws and surfaces as a 500 with the
+// trigger's message — that's intentional; this endpoint does not attempt to work around the
+// DB-level guard by fabricating a holder.
 function handle_update_item(): void {
     require_method('PUT');
     require_permission('manage_equipment');
@@ -459,7 +466,7 @@ function handle_import_status_csv(): void {
     $allowed_statuses = ['available', 'checked-out', 'retired'];
 
     $barrio_by_name = [];
-    foreach (db()->query('SELECT id, name FROM barrios')->fetchAll() as $b) {
+    foreach (db()->query('SELECT id, name FROM groups')->fetchAll() as $b) {
         $barrio_by_name[strtolower($b['name'])] = (int)$b['id'];
     }
 
@@ -476,7 +483,7 @@ function handle_import_status_csv(): void {
             if ($qr === '') continue;
 
             $stmt = $pdo->prepare(
-                'SELECT id, current_dept_id, current_barrio_id
+                'SELECT id, owning_dept_id, holder_type, holder_id
                  FROM equipment_items WHERE qr_code = ? FOR UPDATE'
             );
             $stmt->execute([$qr]);
@@ -488,40 +495,49 @@ function handle_import_status_csv(): void {
             }
 
             $row_changed = false;
+            $current_group_id = $item['holder_type'] === 'group' ? (int)$item['holder_id'] : null;
 
             if ($barrio_col !== false) {
                 $barrio_val = trim($row[$barrio_col] ?? '');
                 if ($barrio_val !== '') {
                     $key = strtolower($barrio_val);
                     if (!isset($barrio_by_name[$key])) {
-                        $errors[] = ['row' => $row_num, 'qr_code' => $qr, 'error' => "Barrio \"$barrio_val\" not found"];
-                    } elseif (!$item['current_dept_id']) {
-                        $errors[] = ['row' => $row_num, 'qr_code' => $qr, 'error' => 'Item has no department assigned — cannot check out to a barrio'];
+                        $errors[] = ['row' => $row_num, 'qr_code' => $qr, 'error' => "Group \"$barrio_val\" not found"];
+                    } elseif (!$item['owning_dept_id']) {
+                        $errors[] = ['row' => $row_num, 'qr_code' => $qr, 'error' => 'Item has no department assigned — cannot check out to a group'];
                     } else {
                         $barrio_id = $barrio_by_name[$key];
                         $pdo->prepare(
                             'UPDATE equipment_items
-                             SET status = "checked-out", current_barrio_id = ?, current_artist_id = NULL, current_person_id = NULL
+                             SET status = "checked-out", holder_type = "group", holder_id = ?
                              WHERE id = ?'
                         )->execute([$barrio_id, $item['id']]);
                         $pdo->prepare(
-                            'INSERT INTO transactions (type, item_id, dept_id, barrio_id, performed_by, user_name_cache, is_offline_entry, occurred_at, notes)
-                             VALUES ("sub_checkout", ?, ?, ?, ?, ?, 1, ?, ?)'
-                        )->execute([$item['id'], $item['current_dept_id'], $barrio_id, $user['id'], $user['display_name'], $now, 'CSV import backfill']);
+                            'INSERT INTO transactions (type, item_id, dept_id, holder_type, holder_id, performed_by, user_name_cache, is_offline_entry, occurred_at, notes)
+                             VALUES ("sub_checkout", ?, ?, "group", ?, ?, ?, 1, ?, ?)'
+                        )->execute([$item['id'], $item['owning_dept_id'], $barrio_id, $user['id'], $user['display_name'], $now, 'CSV import backfill']);
                         $checked_out++;
                         $row_changed = true;
                     }
-                } elseif ($item['current_barrio_id']) {
-                    $prev_barrio_id = (int)$item['current_barrio_id'];
+                } elseif ($current_group_id) {
+                    $prev_barrio_id = $current_group_id;
+                    // Clearing the holder without also resolving status was the exact bug class
+                    // migrate_fix_barrio_visibility_and_status.sql had to patch by hand before —
+                    // the trigger now catches it at write time instead. Return to dept-held state
+                    // if there's an owning department, otherwise fully available.
+                    if ($item['owning_dept_id']) {
+                        $pdo->prepare(
+                            'UPDATE equipment_items
+                             SET holder_type = "department", holder_id = owning_dept_id
+                             WHERE id = ?'
+                        )->execute([$item['id']]);
+                    } else {
+                        set_item_holder($pdo, (int)$item['id'], null, null, 'available');
+                    }
                     $pdo->prepare(
-                        'UPDATE equipment_items
-                         SET current_barrio_id = NULL, current_artist_id = NULL, current_person_id = NULL
-                         WHERE id = ?'
-                    )->execute([$item['id']]);
-                    $pdo->prepare(
-                        'INSERT INTO transactions (type, item_id, dept_id, barrio_id, performed_by, user_name_cache, is_offline_entry, occurred_at, notes)
-                         VALUES ("sub_checkin", ?, ?, ?, ?, ?, 1, ?, ?)'
-                    )->execute([$item['id'], $item['current_dept_id'], $prev_barrio_id, $user['id'], $user['display_name'], $now, 'CSV import backfill']);
+                        'INSERT INTO transactions (type, item_id, dept_id, holder_type, holder_id, performed_by, user_name_cache, is_offline_entry, occurred_at, notes)
+                         VALUES ("sub_checkin", ?, ?, "group", ?, ?, ?, 1, ?, ?)'
+                    )->execute([$item['id'], $item['owning_dept_id'], $prev_barrio_id, $user['id'], $user['display_name'], $now, 'CSV import backfill']);
                     $checked_in++;
                     $row_changed = true;
                 }
@@ -571,7 +587,7 @@ function handle_import_status_csv(): void {
 
 function handle_delete_item(): void {
     require_method('DELETE');
-    require_admin();
+    require_manage_users();
     verify_csrf();
 
     $b  = body();
@@ -579,7 +595,7 @@ function handle_delete_item(): void {
     if (!$id) json_error('id required');
 
     // Soft delete — set to retired
-    $stmt = db()->prepare('UPDATE equipment_items SET status = "retired", current_barrio_id = NULL WHERE id = ?');
+    $stmt = db()->prepare('UPDATE equipment_items SET status = "retired", holder_type = NULL, holder_id = NULL WHERE id = ?');
     $stmt->execute([$id]);
     if ($stmt->rowCount() === 0) json_error('Item not found', 404);
 
@@ -590,7 +606,7 @@ function handle_delete_item(): void {
 
 function handle_list_spec_fields(): void {
     require_method('GET');
-    require_admin();
+    require_manage_users();
 
     $type_id = (int)($_GET['id'] ?? 0);
     if (!$type_id) json_error('type id required');
@@ -612,7 +628,7 @@ function handle_list_spec_fields(): void {
 
 function handle_create_spec_field(): void {
     require_method('POST');
-    require_admin();
+    require_manage_users();
     verify_csrf();
 
     $type_id    = (int)($_GET['id'] ?? 0);
@@ -661,7 +677,7 @@ function handle_create_spec_field(): void {
 
 function handle_update_spec_field(): void {
     require_method('PUT');
-    require_admin();
+    require_manage_users();
     verify_csrf();
 
     $sf_id = (int)($_GET['id'] ?? 0);
@@ -699,7 +715,7 @@ function handle_update_spec_field(): void {
 
 function handle_delete_spec_field(): void {
     require_method('DELETE');
-    require_admin();
+    require_manage_users();
     verify_csrf();
 
     $sf_id = (int)($_GET['id'] ?? 0);
@@ -725,7 +741,7 @@ function handle_delete_spec_field(): void {
 
 function handle_reorder_spec_fields(): void {
     require_method('PUT');
-    require_admin();
+    require_manage_users();
     verify_csrf();
 
     $type_id = (int)($_GET['id'] ?? 0);

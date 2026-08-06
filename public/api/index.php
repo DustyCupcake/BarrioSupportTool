@@ -6,7 +6,8 @@ error_reporting(E_ALL);
 
 require_once __DIR__ . '/lib/db.php';
 require_once __DIR__ . '/lib/response.php';
-require_once __DIR__ . '/lib/barrio_location.php';
+require_once __DIR__ . '/lib/group_location.php';
+require_once __DIR__ . '/lib/holder.php';
 require_once __DIR__ . '/auth.php';
 
 // Naive DATETIME columns (shift windows, invite/token expiry, order deadlines) are entered
@@ -62,7 +63,6 @@ $routes = [
     ['POST', '/auth/barrio-identify',     'routes/auth.php', 'handle_barrio_identify'],
 
     // Staff — inventory & equipment ops
-    ['GET',  '/camps',               'routes/camps.php',        'handle_camps'],
     ['GET',  '/items/lookup',         'routes/items.php',        'handle_lookup'],
     ['POST', '/items/location',       'routes/items.php',        'handle_update_item_location'],
     ['POST', '/items/:id/photo',     'routes/items.php',        'handle_upload_item_photo'],
@@ -94,7 +94,7 @@ $routes = [
     ['POST',   '/fill/confirm',            'routes/fill_requests.php', 'handle_confirm_fill'],
     ['POST',   '/fill/confirm-adhoc',      'routes/fill_requests.php', 'handle_confirm_adhoc_fill'],
     ['POST',   '/fill/sanitize',           'routes/fill_requests.php', 'handle_sanitize'],
-    ['GET',    '/barrios/:id/cubes',       'routes/fill_requests.php', 'handle_barrio_cubes'],
+    ['GET',    '/groups/:id/cubes',        'routes/fill_requests.php', 'handle_group_cubes'],
 
     // Site map overlay — read-only reference layer for the Fill Route maps
     ['GET',    '/map-overlay',             'routes/map_overlay.php',  'handle_get_map_overlay'],
@@ -118,19 +118,15 @@ $routes = [
     ['GET',  '/departments',         'routes/departments.php',  'handle_list_departments'],
     ['GET',  '/departments/:id',     'routes/departments.php',  'handle_get_department'],
 
-    // Artists
-    ['GET',  '/artists',             'routes/artists.php',      'handle_list_artists'],
-    ['GET',  '/artists/:id',         'routes/artists.php',      'handle_get_artist'],
-
     // Dept equipment orders
     ['GET',  '/dept-orders',         'routes/orders.php',       'handle_get_dept_orders'],
     ['PUT',  '/dept-orders',         'routes/orders.php',       'handle_save_dept_orders'],
 
-    // Barrio lifecycle
-    ['GET',  '/barrios',             'routes/barrios.php',      'handle_list_barrios'],
-    ['GET',  '/barrios/:id',         'routes/barrios.php',      'handle_get_barrio'],
-    ['POST', '/barrio-arrival',      'routes/barrios.php',      'handle_barrio_arrival'],
-    ['POST', '/barrio-departure',    'routes/barrios.php',      'handle_barrio_departure'],
+    // Group lifecycle
+    ['GET',  '/groups',              'routes/groups.php',       'handle_list_groups'],
+    ['GET',  '/groups/:id',          'routes/groups.php',       'handle_get_group'],
+    ['POST', '/group-arrival',       'routes/groups.php',       'handle_group_arrival'],
+    ['POST', '/group-departure',     'routes/groups.php',       'handle_group_departure'],
 
     // Consumables & entitlements
     ['GET',    '/consumable-types',              'routes/consumables.php', 'handle_list_consumable_types'],
@@ -141,7 +137,7 @@ $routes = [
     ['DELETE', '/admin/consumable-types',        'routes/consumables.php', 'handle_admin_consumable_types'],
     ['PUT',    '/admin/barrio-entitlements',     'routes/consumables.php', 'handle_admin_barrio_entitlements'],
     ['PUT',    '/admin/barrio-equipment-orders', 'routes/consumables.php', 'handle_admin_equipment_orders'],
-    ['POST',   '/admin/barrios/import-csv',      'routes/consumables.php', 'handle_import_csv'],
+    ['POST',   '/admin/groups/import-csv',       'routes/consumables.php', 'handle_import_csv'],
 
     // Admin — departments
     ['GET',    '/admin/departments',             'routes/admin/departments.php', 'handle_list_departments_admin'],
@@ -155,19 +151,13 @@ $routes = [
     ['GET',    '/admin/dept-orders',             'routes/orders.php',            'handle_all_dept_orders'],
     ['GET',    '/admin/barrio-orders-aggregate', 'routes/orders.php',            'handle_barrio_orders_aggregate'],
 
-    // Admin — artists
-    ['GET',    '/admin/artists',                 'routes/admin/artists.php',     'handle_list_artists_admin'],
-    ['POST',   '/admin/artists',                 'routes/admin/artists.php',     'handle_create_artist'],
-    ['PUT',    '/admin/artists',                 'routes/admin/artists.php',     'handle_update_artist'],
-    ['DELETE', '/admin/artists',                 'routes/admin/artists.php',     'handle_delete_artist'],
-    ['POST',   '/admin/artists/import-csv',      'routes/admin/artists.php',     'handle_import_artists_csv'],
-
-    // Admin — barrios
-    ['GET',    '/admin/barrios',                 'routes/admin/barrios.php',     'handle_list'],
-    ['POST',   '/admin/barrios',                 'routes/admin/barrios.php',     'handle_create'],
-    ['PUT',    '/admin/barrios',                 'routes/admin/barrios.php',     'handle_update'],
-    ['DELETE', '/admin/barrios',                 'routes/admin/barrios.php',     'handle_delete'],
-    ['POST',   '/admin/barrios/import-locations-csv', 'routes/admin/barrios.php', 'handle_import_locations_csv'],
+    // Admin — groups
+    ['GET',    '/admin/groups',                  'routes/admin/groups.php',      'handle_list'],
+    ['POST',   '/admin/groups',                  'routes/admin/groups.php',      'handle_create'],
+    ['PUT',    '/admin/groups',                  'routes/admin/groups.php',      'handle_update'],
+    ['DELETE', '/admin/groups',                  'routes/admin/groups.php',      'handle_delete'],
+    ['POST',   '/admin/groups/import-dept-csv',  'routes/admin/groups.php',      'handle_import_groups_csv'],
+    ['POST',   '/admin/groups/import-locations-csv', 'routes/admin/groups.php',  'handle_import_locations_csv'],
 
     // Admin — shifts
     ['GET',    '/admin/shifts',                  'routes/admin/shifts.php',      'handle_list_shifts'],
@@ -200,7 +190,7 @@ $routes = [
     ['PUT',    '/admin/items',                   'routes/admin/equipment.php',   'handle_update_item'],
     ['DELETE', '/admin/items',                   'routes/admin/equipment.php',   'handle_delete_item'],
     ['GET',    '/admin/items/qr-sheet',          'routes/admin/qr_sheet.php',    'handle_qr_sheet'],
-    ['GET',    '/admin/barrio-qr',               'routes/admin/barrio_qr.php',   'handle_barrio_qr'],
+    ['GET',    '/admin/group-qr',                'routes/admin/group_qr.php',    'handle_group_qr'],
     ['GET',    '/admin/dept-qr',                'routes/admin/dept_qr.php',     'handle_dept_qr'],
     ['GET',    '/my-qr',                        'routes/persons.php',           'handle_my_qr'],
     ['GET',    '/my-qr-img',                    'routes/persons.php',           'handle_my_qr_img'],
@@ -254,6 +244,7 @@ $routes = [
     ['POST',   '/admin/system/reset',            'routes/admin/system.php',      'handle_system_reset'],
     ['GET',    '/admin/system/active-event',     'routes/admin/system.php',      'handle_active_event'],
 
+
     // Admin — users
     ['GET',    '/admin/users/search',            'routes/admin/users.php',       'handle_search'],
     ['GET',    '/admin/users',                   'routes/admin/users.php',       'handle_list'],
@@ -263,9 +254,6 @@ $routes = [
     ['DELETE', '/admin/users',                   'routes/admin/users.php',       'handle_delete'],
     ['POST',   '/admin/users/reset-password',    'routes/admin/users.php',       'handle_reset_password'],
     ['GET',    '/admin/users/qr-sheet',          'routes/admin/users.php',       'handle_user_qr_sheet'],
-
-    // Admin — system
-    ['POST',   '/admin/system/reset',            'routes/admin/system.php',      'handle_reset'],
 ];
 
 $matched = false;

@@ -251,7 +251,7 @@ function _renderTable(items) {
                 }
               </td>
               ${specsCell}
-              <td style="color:var(--text2);font-size:13px">${_esc(it.current_barrio ?? '—')}</td>
+              <td style="color:var(--text2);font-size:13px">${_esc(it.current_group ?? '—')}</td>
             </tr>`;
         }).join('')}
       </tbody>

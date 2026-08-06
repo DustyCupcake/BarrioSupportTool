@@ -4,7 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ---
 
-**Elsewhere Inventory** is an event-wide equipment management platform for large-scale camp operations. It provides centralized inventory tracking, multi-tier checkout (production → department → barrio/artist/person), offline-first QR scanning, full audit trails, and volunteer shift management with temporary QR-based sessions.
+**Elsewhere Inventory** is an event-wide equipment management platform for large-scale camp operations. It provides centralized inventory tracking, multi-tier checkout (production → department → group → person), offline-first QR scanning, full audit trails, and volunteer shift management with temporary QR-based sessions.
+
+A "group" is any team/camp/collective a department lends equipment to — it replaces what used to be two parallel entity types (`barrios` and `artists`). Arrival/departure tracking and consumable entitlements are per-group capability flags (`enable_arrival_tracking`, `enable_consumable_entitlements`), not a hardcoded type split.
 
 **Stack:** PHP 7.4+ backend, vanilla ES module JavaScript frontend, MySQL 5.7+, service-worker offline support — no build system.
 
@@ -26,31 +28,30 @@ elsewhere_inventory/
 │   │   ├── auth.php                  # Auth middleware, permission system, session management
 │   │   ├── lib/db.php                # PDO singleton, .env-based connection
 │   │   ├── lib/response.php          # json_ok(), json_error(), body(), require_method()
+│   │   ├── lib/holder.php            # set_item_holder(), item_holder_label() — the holder model helpers
+│   │   ├── lib/group_location.php    # get_group_location() — GPS fallback from a group's storage location
 │   │   └── routes/
 │   │       ├── auth.php              # Login, logout, register, language, invite/shift tokens
 │   │       ├── transactions.php      # Checkout, checkin, person-checkout, label, use/activate
 │   │       ├── items.php             # Item lookup, inventory list
 │   │       ├── persons.php           # Person info and search
 │   │       ├── departments.php       # List departments
-│   │       ├── artists.php           # List artists
-│   │       ├── barrios.php           # List barrios, arrival/departure, consumable distribution
+│   │       ├── groups.php            # List groups, arrival/departure, consumable distribution
 │   │       ├── orders.php            # Dept equipment orders
-│   │       ├── consumables.php       # Consumable types, entitlements, barrio CSV import
+│   │       ├── consumables.php       # Consumable types, entitlements, group CSV import
 │   │       ├── history.php           # Transaction log
 │   │       ├── sync.php              # Offline queue sync endpoint
 │   │       ├── voucher.php           # Public voucher status check
 │   │       ├── item_public.php       # Public item info page
-│   │       ├── camps.php             # Alias for barrios (used by checkout UI)
 │   │       └── admin/                # Admin-only endpoints
 │   │           ├── departments.php   # CRUD, dept role assignment
-│   │           ├── artists.php       # CRUD, CSV import
-│   │           ├── barrios.php       # CRUD
+│   │           ├── groups.php        # CRUD, CSV import (merges what used to be admin/barrios.php + admin/artists.php)
 │   │           ├── equipment.php     # Equipment types/items, borrowable rules
 │   │           ├── users.php         # User CRUD, password reset, QR sheet export
 │   │           ├── invite.php        # Invite token CRUD
 │   │           ├── shifts.php        # Shift CRUD, token generation, QR sheet
 │   │           ├── qr_sheet.php      # Bulk equipment label QR sheet export
-│   │           └── barrio_qr.php     # Barrio QR code batch export
+│   │           └── group_qr.php      # Group QR code batch export
 │   └── assets/
 │       ├── css/main.css / app.css / admin.css
 │       ├── js/
@@ -62,7 +63,7 @@ elsewhere_inventory/
 │       │   ├── scan-overlay.js       # Full-screen confirmation overlay for scans
 │       │   ├── checkout.js           # 3-step flow: entity select → scan → confirm
 │       │   ├── checkin.js            # Scan → confirm → return/transfer
-│       │   ├── barrios.js            # Barrio management UI (arrival, departure, entitlements)
+│       │   ├── groups.js             # Group management UI (arrival, departure, entitlements)
 │       │   ├── inventory.js          # Equipment list with status filters
 │       │   ├── history.js            # Transaction log
 │       │   ├── order-form.js         # Dept equipment order submission
@@ -71,7 +72,7 @@ elsewhere_inventory/
 │       │   ├── water.js / voucher.js / item-public.js   # Special-purpose pages
 │       │   └── admin/
 │       │       ├── admin.js          # Admin sidebar nav router
-│       │       ├── equipment.js / users.js / barrios.js / consumables.js
+│       │       ├── equipment.js / users.js / groups.js / consumables.js
 │       └── vendor/
 │           ├── jsqr.min.js           # QR decoder fallback
 │           └── phpqrcode/            # QR generation (label sheets)
@@ -105,8 +106,10 @@ RewriteRule ^api/(.*)$ api/index.php?path=$1 [QSA,L]
 
 **Named-permission model:** Permissions are computed at login as a flat array and stored in session.
 - Base role → default permission set
-- `user_dept_roles` memberships + dept `sub_entity` type (barrio/artist/none) → additional perms
+- `user_dept_roles` memberships + dept `manages_groups` flag → additional perms (`view_groups`, `manage_groups`, `sub_checkout`, `sub_checkin`, `label_equipment`)
 - `user_permissions` overrides (granted/denied) applied last
+
+A `group_roles` table (per-group membership, mirroring `user_dept_roles`) exists in the schema as groundwork but is not yet wired into permission computation — group-scoped access currently flows only through the owning department's `manages_groups` membership.
 
 **Base roles and default permissions:**
 - `production_admin` — everything
@@ -115,7 +118,7 @@ RewriteRule ^api/(.*)$ api/index.php?path=$1 [QSA,L]
 - `dept_staff` — sub-checkout/sub-checkin (if dept is sub-lending), view dept inventory, submit orders
 - Legacy aliases: `admin` → `production_admin`, `staff` → `production_staff`, `validator` → `dept_staff`
 
-**Key permission strings:** `checkout_equipment`, `checkin_equipment`, `sub_checkout`, `sub_checkin`, `validate_vouchers`, `view_inventory`, `view_dept_inventory`, `manage_equipment`, `manage_consumables`, `manage_users`, `manage_departments`, `manage_barrios`, `manage_artists`, `manage_shifts`, `create_invites`, `submit_orders`, `label_equipment`, `person_checkout`
+**Key permission strings:** `checkout_equipment`, `checkin_equipment`, `sub_checkout`, `sub_checkin`, `validate_vouchers`, `view_inventory`, `view_dept_inventory`, `view_groups`, `manage_equipment`, `manage_consumables`, `manage_users`, `manage_departments`, `manage_groups`, `manage_shifts`, `create_invites`, `submit_orders`, `label_equipment`, `person_checkout`
 
 **CSRF:** `X-CSRF-Token` header required for all POST/PUT/DELETE. Token returned by `GET /auth/me` and `GET /auth/csrf`, verified by `verify_csrf()` in auth.php.
 
@@ -138,11 +141,13 @@ $row = $stmt->fetch();
 
 All checkout/checkin operations use `SELECT ... FOR UPDATE` row locking and are wrapped in a database transaction. Every state change writes an immutable row to `transactions`.
 
+**Holder model:** `equipment_items` tracks who currently has an item via a single `holder_type ENUM('department','group','person') NULL` + `holder_id` pair, not a set of type-specific nullable columns. `holder_type IS NULL` means the item is available in the production pool. `owning_dept_id` is a separate field — the department whose pool the item belongs to, which persists through sub-lending independent of who currently holds it. A DB trigger enforces `holder_type IS NULL ⟺ status IN ('available','retired')` and `holder_type IS NULL ⟺ holder_id IS NULL` — any write that violates this raises a SQL error, so any handler that changes `status` must also resolve `holder_type`/`holder_id` consistently (use `set_item_holder()` from `lib/holder.php`). `transactions` mirrors the same `holder_type`/`holder_id` shape (`dept_id` stays as the owning-department context).
+
 **Checkout tiers:**
-- `POST /checkout` (production → dept): sets `current_dept_id`, clears lower fields
-- `POST /sub-checkout` (dept → barrio/artist): sets `current_barrio_id` or `current_artist_id`
-- `POST /person-checkout` / `POST /sub-person-checkout`: sets `current_person_id`
-- `POST /checkin`: auto-detects holder tier, returns item to the appropriate level
+- `POST /checkout` (production → dept): sets `owning_dept_id`, `holder_type='department'`
+- `POST /sub-checkout` (dept → group): sets `holder_type='group'`, keeps `owning_dept_id`
+- `POST /person-checkout` / `POST /sub-person-checkout`: sets `holder_type='person'`
+- `POST /checkin`: auto-detects holder tier from `holder_type`, returns item to the appropriate level (dept-held state if there's an owning department, otherwise fully available)
 
 ---
 
@@ -156,13 +161,13 @@ No build step. All JS is vanilla ES modules loaded by the browser. Cache-busting
 
 **`api.js`**: `api(method, path, body)` wrapper with automatic CSRF header injection. Redirects to login on 401. Falls back to offline queue (localStorage) when network is unavailable.
 
-**`offline.js`**: LocalStorage queue (`barrio_offline_queue`). Queued transactions sync via `POST /sync/offline-queue` when online. Service worker caches the app shell but does not manage the queue.
+**`offline.js`**: LocalStorage queue. Queued transactions sync via `POST /sync/offline-queue` when online. Service worker caches the app shell but does not manage the queue.
 
 **`i18n.js`**: Translation strings keyed by namespace. Applies to DOM via `data-i18n` attributes. Language persisted server-side via `POST /auth/language`.
 
 ### Admin Panel
 
-`admin/admin.js` routes sidebar nav clicks to section modules (`equipment.js`, `users.js`, `barrios.js`, `consumables.js`). Sections load/unload themselves as the active section changes.
+`admin/admin.js` routes sidebar nav clicks to section modules (`equipment.js`, `users.js`, `groups.js`, `consumables.js`). Sections load/unload themselves as the active section changes.
 
 ---
 
@@ -196,6 +201,11 @@ mysql -u user -p db < migrate_fill_confirm.sql
 mysql -u user -p db < migrate_overhaul.sql        # depends on user_language being applied first
 mysql -u user -p db < migrate_person_checkout.sql # depends on overhaul
 mysql -u user -p db < migrate_borrow_restrictions.sql  # depends on person_checkout
+mysql -u user -p db < migrate_groups_holder_model.sql   # merges barrios+artists into groups; replaces the
+                                                          # four-nullable-holder-column model on equipment_items/
+                                                          # transactions with holder_type/holder_id. NOT staged for
+                                                          # zero-downtime — take a full backup first, see the file's
+                                                          # header comment.
 ```
 
 ### Adding an Endpoint
@@ -226,7 +236,7 @@ mysql -u user -p db < migrate_borrow_restrictions.sql  # depends on person_check
 
 ### Equipment Checkout
 
-1. User selects entity type (dept/barrio/artist/person) based on role
+1. User selects entity type (dept/group/person) based on role
 2. Scans items — QR codes validated via `GET /items/lookup`
 3. Confirms → `POST /checkout` or `POST /sub-checkout` with item QR array
 4. If offline, request queued to localStorage and synced later via `POST /sync/offline-queue`
@@ -249,4 +259,4 @@ mysql -u user -p db < migrate_borrow_restrictions.sql  # depends on person_check
 - Equipment labels: `GET /admin/items/qr-sheet`
 - Shift tokens: `GET /admin/shifts/qr-sheet`
 - User personal QRs: `GET /admin/users/qr-sheet`
-- Barrio QRs: `GET /admin/barrio-qr`
+- Group QRs: `GET /admin/group-qr`

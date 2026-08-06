@@ -1,6 +1,6 @@
 /**
  * Admin: Fill Requests section.
- * Status board of every barrio's currently pending/partial water fill requests.
+ * Status board of every group's currently pending/partial water fill requests.
  */
 
 import { get, del } from '../api.js?v=1.0.1';
@@ -20,7 +20,7 @@ function renderShell(container) {
     <div class="page-header">
       <div>
         <div class="page-title">Fill Requests</div>
-        <div class="page-subtitle">Every barrio's currently pending or partially-filled water fill request, across the whole event.</div>
+        <div class="page-subtitle">Every group's currently pending or partially-filled water fill request, across the whole event.</div>
       </div>
       <button class="btn sm" onclick="window._frq.reload()">Refresh</button>
     </div>
@@ -52,7 +52,7 @@ function renderTable() {
     <table class="data-table">
       <thead>
         <tr>
-          <th>Barrio</th>
+          <th>Group</th>
           <th>Type</th>
           <th>Fills</th>
           <th>Status</th>

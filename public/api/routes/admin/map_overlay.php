@@ -5,7 +5,7 @@ require_once __DIR__ . '/../../lib/kml_parser.php';
 
 function _map_overlay_require_access(): array {
     $user = require_auth();
-    if (!has_permission('manage_barrios') && !has_permission('manage_equipment')) {
+    if (!has_permission('manage_groups') && !has_permission('manage_equipment')) {
         json_error('Forbidden', 403);
     }
     return $user;

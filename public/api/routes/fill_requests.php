@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 // ─── POST /fill-requests ──────────────────────────────────────────────────────
 // Create a fill request. Two modes:
-//   Barrio entity-level: body { entity_id, fills_requested } or { entity_qr, fills_requested }
+//   Group entity-level: body { entity_id, fills_requested } or { entity_qr, fills_requested }
 //   NWP cube-specific:   body { cube_qr }
 function handle_create_fill_request(): void {
     require_method('POST');
@@ -18,13 +18,13 @@ function handle_create_fill_request(): void {
     $entity_id      = isset($b['entity_id'])  ? (int)$b['entity_id']           : null;
     $pdo            = db();
 
-    // ── Resolve entity and cube ──────────────────────────────────────────────
+    // ── Resolve group and cube ───────────────────────────────────────────────
     $cube_item_id = null;
 
     if ($cube_qr !== null) {
-        // NWP cube-specific mode: look up cube → derive entity
+        // NWP cube-specific mode: look up cube → derive group
         $stmt = $pdo->prepare(
-            'SELECT i.id, i.current_barrio_id, i.route_position, t.category
+            'SELECT i.id, i.holder_type, i.holder_id, i.route_position, t.category
              FROM equipment_items i
              JOIN equipment_types t ON t.id = i.equipment_type_id
              WHERE i.qr_code = ? AND i.status = \'checked-out\''
@@ -34,32 +34,32 @@ function handle_create_fill_request(): void {
 
         if (!$cube) json_error('Cube not found or not checked out', 404);
         if ($cube['category'] !== 'water_cube') json_error('Not a water cube', 409);
-        if (!$cube['current_barrio_id']) json_error('Cube not assigned to an entity', 409);
+        if ($cube['holder_type'] !== 'group' || !$cube['holder_id']) json_error('Cube not assigned to a group', 409);
 
         $cube_item_id   = (int)$cube['id'];
-        $entity_id      = (int)$cube['current_barrio_id'];
+        $entity_id      = (int)$cube['holder_id'];
         $fills_requested = 1;
 
     } elseif ($entity_qr !== null) {
-        // Barrio entity-level via QR
-        $stmt = $pdo->prepare('SELECT id FROM barrios WHERE qr_code = ?');
+        // Group entity-level via QR
+        $stmt = $pdo->prepare('SELECT id FROM groups WHERE qr_code = ?');
         $stmt->execute([$entity_qr]);
-        $barrio = $stmt->fetch();
-        if (!$barrio) json_error('Barrio QR not found', 404);
-        $entity_id = (int)$barrio['id'];
+        $group = $stmt->fetch();
+        if (!$group) json_error('Group QR not found', 404);
+        $entity_id = (int)$group['id'];
 
     } elseif ($entity_id !== null) {
-        // Barrio entity-level via direct ID (noinfo name lookup)
-        $stmt = $pdo->prepare('SELECT id FROM barrios WHERE id = ?');
+        // Group entity-level via direct ID (noinfo name lookup)
+        $stmt = $pdo->prepare('SELECT id FROM groups WHERE id = ?');
         $stmt->execute([$entity_id]);
-        if (!$stmt->fetch()) json_error('Barrio not found', 404);
+        if (!$stmt->fetch()) json_error('Group not found', 404);
 
-    } elseif (!empty($_SESSION['barrio_id'])) {
-        // Barrio-scoped shift session — use the session's barrio automatically
-        $entity_id = (int)$_SESSION['barrio_id'];
-        $stmt = $pdo->prepare('SELECT id FROM barrios WHERE id = ?');
+    } elseif (!empty($_SESSION['group_id'])) {
+        // Group-scoped shift session — use the session's group automatically
+        $entity_id = (int)$_SESSION['group_id'];
+        $stmt = $pdo->prepare('SELECT id FROM groups WHERE id = ?');
         $stmt->execute([$entity_id]);
-        if (!$stmt->fetch()) json_error('Session barrio not found', 404);
+        if (!$stmt->fetch()) json_error('Session group not found', 404);
 
     } else {
         json_error('entity_id, entity_qr, or cube_qr required');
@@ -75,14 +75,14 @@ function handle_create_fill_request(): void {
         $stmt->execute([$cube_item_id]);
         if ($stmt->fetch()) json_error('A fill request already exists for this cube', 409);
     } else {
-        // Entity-level: no active request for this entity
+        // Entity-level: no active request for this group
         $stmt = $pdo->prepare(
             "SELECT id FROM fill_requests
-             WHERE entity_type = 'barrio' AND entity_id = ? AND cube_item_id IS NULL
+             WHERE group_id = ? AND cube_item_id IS NULL
              AND status IN ('pending','partial')"
         );
         $stmt->execute([$entity_id]);
-        if ($stmt->fetch()) json_error('A fill request already exists for this barrio', 409);
+        if ($stmt->fetch()) json_error('A fill request already exists for this group', 409);
     }
 
     // ── Check fill credits ───────────────────────────────────────────────────
@@ -98,18 +98,18 @@ function handle_create_fill_request(): void {
     $now  = date('Y-m-d H:i:s');
     $stmt = $pdo->prepare(
         'INSERT INTO fill_requests
-            (entity_type, entity_id, cube_item_id, fills_requested, requested_at, requested_by)
-         VALUES (\'barrio\', ?, ?, ?, ?, ?)'
+            (group_id, cube_item_id, fills_requested, requested_at, requested_by)
+         VALUES (?, ?, ?, ?, ?)'
     );
     $stmt->execute([$entity_id, $cube_item_id, $fills_requested, $now, $user['id']]);
     $request_id = (int)$pdo->lastInsertId();
 
-    // Audit transaction — use the cube item if specific, else pick the first cube from the barrio
+    // Audit transaction — use the cube item if specific, else pick the first cube from the group
     $audit_item_id = $cube_item_id ?? _first_cube_item_id($pdo, $entity_id);
     if ($audit_item_id) {
         $pdo->prepare(
-            'INSERT INTO transactions (type, item_id, barrio_id, performed_by, user_name_cache, occurred_at)
-             VALUES (\'fill_requested\', ?, ?, ?, ?, ?)'
+            'INSERT INTO transactions (type, item_id, holder_type, holder_id, performed_by, user_name_cache, occurred_at)
+             VALUES (\'fill_requested\', ?, \'group\', ?, ?, ?, ?)'
         )->execute([$audit_item_id, $entity_id, $user['id'], $user['display_name'], $now]);
     }
 
@@ -139,12 +139,12 @@ function handle_cancel_fill_request(): void {
     $now = date('Y-m-d H:i:s');
     $pdo->prepare("UPDATE fill_requests SET status = 'cancelled' WHERE id = ?")
         ->execute([$id]);
-    $audit_item_id = $fr['cube_item_id'] ?? _first_cube_item_id($pdo, (int)$fr['entity_id']);
+    $audit_item_id = $fr['cube_item_id'] ?? _first_cube_item_id($pdo, (int)$fr['group_id']);
     if ($audit_item_id) {
         $pdo->prepare(
-            'INSERT INTO transactions (type, item_id, barrio_id, performed_by, user_name_cache, occurred_at)
-             VALUES (\'fill_cancelled\', ?, ?, ?, ?, ?)'
-        )->execute([$audit_item_id, $fr['entity_id'], $user['id'], $user['display_name'], $now]);
+            'INSERT INTO transactions (type, item_id, holder_type, holder_id, performed_by, user_name_cache, occurred_at)
+             VALUES (\'fill_cancelled\', ?, \'group\', ?, ?, ?, ?)'
+        )->execute([$audit_item_id, $fr['group_id'], $user['id'], $user['display_name'], $now]);
     }
 
     json_ok(['success' => true]);
@@ -170,8 +170,8 @@ function handle_fill_route(): void {
             i.route_position,
             i.latitude, i.longitude,
             CONCAT(t.name, ' #', i.item_number) AS cube_label,
-            fr.entity_type, fr.entity_id,
-            b.name AS entity_name,
+            fr.group_id AS entity_id,
+            g.name AS entity_name,
             (fr.fills_requested - fr.fills_completed) AS fills_remaining,
             fr.fills_requested,
             fr.fills_completed,
@@ -181,14 +181,14 @@ function handle_fill_route(): void {
         FROM fill_requests fr
         JOIN equipment_items i  ON i.id = fr.cube_item_id
         JOIN equipment_types t  ON t.id = i.equipment_type_id
-        JOIN barrios b          ON b.id = fr.entity_id
+        JOIN groups g           ON g.id = fr.group_id
         WHERE fr.status IN ('pending','partial')
           AND fr.cube_item_id IS NOT NULL
           AND (fr.fills_requested - fr.fills_completed) > 0
           AND i.route_position IS NOT NULL
     ";
 
-    // Entity-level requests (barrios): expand to individual cube rows
+    // Entity-level requests (groups): expand to individual cube rows
     $sql_entity = "
         SELECT
             fr.id AS fill_request_id,
@@ -197,8 +197,8 @@ function handle_fill_route(): void {
             i.route_position,
             i.latitude, i.longitude,
             CONCAT(t.name, ' #', i.item_number) AS cube_label,
-            fr.entity_type, fr.entity_id,
-            b.name AS entity_name,
+            fr.group_id AS entity_id,
+            g.name AS entity_name,
             (fr.fills_requested - fr.fills_completed) AS fills_remaining,
             fr.fills_requested,
             fr.fills_completed,
@@ -206,9 +206,9 @@ function handle_fill_route(): void {
             (SELECT MAX(tx.occurred_at) FROM transactions tx
              WHERE tx.item_id = i.id AND tx.type IN ('fill_confirmed','fill_adhoc')) AS last_filled_at
         FROM fill_requests fr
-        JOIN equipment_items i  ON i.current_barrio_id = fr.entity_id
+        JOIN equipment_items i  ON i.holder_type = 'group' AND i.holder_id = fr.group_id
         JOIN equipment_types t  ON t.id = i.equipment_type_id AND t.category = 'water_cube'
-        JOIN barrios b          ON b.id = fr.entity_id
+        JOIN groups g           ON g.id = fr.group_id
         WHERE fr.status IN ('pending','partial')
           AND fr.cube_item_id IS NULL
           AND i.status = 'checked-out'
@@ -220,9 +220,9 @@ function handle_fill_route(): void {
     );
     $rows = $stmt->fetchAll();
 
-    // Cubes without their own coordinates fall back to their barrio's single
-    // storage location (if unambiguous) — cached per barrio to avoid N+1 queries.
-    $barrio_loc_cache = [];
+    // Cubes without their own coordinates fall back to their group's single
+    // storage location (if unambiguous) — cached per group to avoid N+1 queries.
+    $group_loc_cache = [];
 
     foreach ($rows as &$r) {
         $r['fill_request_id']  = (int)$r['fill_request_id'];
@@ -239,15 +239,15 @@ function handle_fill_route(): void {
         if ($r['latitude'] !== null && $r['longitude'] !== null) {
             $r['location_source'] = 'cube';
         } else {
-            $bid = $r['entity_id'];
-            if (!array_key_exists($bid, $barrio_loc_cache)) {
-                $barrio_loc_cache[$bid] = get_barrio_location($pdo, $bid);
+            $gid = $r['entity_id'];
+            if (!array_key_exists($gid, $group_loc_cache)) {
+                $group_loc_cache[$gid] = get_group_location($pdo, $gid);
             }
-            $loc = $barrio_loc_cache[$bid];
+            $loc = $group_loc_cache[$gid];
             if ($loc) {
                 $r['latitude']  = $loc['latitude'];
                 $r['longitude'] = $loc['longitude'];
-                $r['location_source'] = 'barrio';
+                $r['location_source'] = 'group';
             } else {
                 $r['location_source'] = null;
             }
@@ -272,12 +272,12 @@ function handle_confirm_fill(): void {
 
     $pdo  = db();
     $stmt = $pdo->prepare(
-        'SELECT i.id, i.current_barrio_id, i.route_position, t.category,
+        'SELECT i.id, i.holder_type, i.holder_id, i.route_position, t.category,
                 CONCAT(t.name, \' #\', i.item_number) AS cube_label,
-                b.name AS barrio_name
+                g.name AS group_name
          FROM equipment_items i
          JOIN equipment_types t ON t.id = i.equipment_type_id
-         LEFT JOIN barrios b    ON b.id = i.current_barrio_id
+         LEFT JOIN groups g     ON g.id = i.holder_id AND i.holder_type = \'group\'
          WHERE i.qr_code = ?'
     );
     $stmt->execute([$cube_qr]);
@@ -285,10 +285,10 @@ function handle_confirm_fill(): void {
 
     if (!$cube) json_error('Cube not found', 404);
     if ($cube['category'] !== 'water_cube') json_error('Not a water cube', 409);
-    if (!$cube['current_barrio_id']) json_error('Cube not assigned to any entity', 409);
+    if ($cube['holder_type'] !== 'group' || !$cube['holder_id']) json_error('Cube not assigned to any group', 409);
 
     $cube_id   = (int)$cube['id'];
-    $entity_id = (int)$cube['current_barrio_id'];
+    $entity_id = (int)$cube['holder_id'];
 
     // Find matching active fill request
     // Prefer cube-specific request; fall back to entity-level
@@ -305,7 +305,7 @@ function handle_confirm_fill(): void {
     if (!$fr) {
         $stmt = $pdo->prepare(
             "SELECT * FROM fill_requests
-             WHERE entity_type = 'barrio' AND entity_id = ?
+             WHERE group_id = ?
                AND cube_item_id IS NULL AND status IN ('pending','partial')
              LIMIT 1"
         );
@@ -331,16 +331,16 @@ function handle_confirm_fill(): void {
 
         // Decrement fill credit (increment distributed)
         $pdo->prepare(
-            "UPDATE barrio_entitlements be
-             JOIN consumable_types ct ON ct.id = be.type_id AND ct.key_name = 'water_fill'
-             SET be.distributed = be.distributed + 1
-             WHERE be.barrio_id = ?"
+            "UPDATE group_entitlements ge
+             JOIN consumable_types ct ON ct.id = ge.type_id AND ct.key_name = 'water_fill'
+             SET ge.distributed = ge.distributed + 1
+             WHERE ge.group_id = ?"
         )->execute([$entity_id]);
 
         // Record delivery (sanitation confirmed separately via POST /fill/sanitize)
         $pdo->prepare(
-            'INSERT INTO transactions (type, item_id, barrio_id, performed_by, user_name_cache, occurred_at)
-             VALUES (\'fill_delivered\', ?, ?, ?, ?, ?)'
+            'INSERT INTO transactions (type, item_id, holder_type, holder_id, performed_by, user_name_cache, occurred_at)
+             VALUES (\'fill_delivered\', ?, \'group\', ?, ?, ?, ?)'
         )->execute([$cube_id, $entity_id, $user['id'], $user['display_name'], $now]);
 
         $pdo->commit();
@@ -355,7 +355,7 @@ function handle_confirm_fill(): void {
         'cube_qr'         => $cube_qr,
         'cube_label'      => $cube['cube_label'],
         'entity_id'       => $entity_id,
-        'entity_name'     => $cube['barrio_name'],
+        'entity_name'     => $cube['group_name'],
         'fills_remaining' => max(0, (int)$fr['fills_requested'] - $new_completed),
         'request_status'  => $new_status,
     ]);
@@ -386,15 +386,15 @@ function handle_sanitize(): void {
     try {
         foreach ($cube_item_ids as $raw_id) {
             $item_id = (int)$raw_id;
-            $stmt    = $pdo->prepare('SELECT current_barrio_id FROM equipment_items WHERE id = ?');
+            $stmt    = $pdo->prepare('SELECT holder_type, holder_id FROM equipment_items WHERE id = ?');
             $stmt->execute([$item_id]);
             $row       = $stmt->fetch();
-            $barrio_id = $row ? (int)$row['current_barrio_id'] : null;
+            $group_id  = ($row && $row['holder_type'] === 'group') ? (int)$row['holder_id'] : null;
 
             $pdo->prepare(
-                'INSERT INTO transactions (type, item_id, barrio_id, performed_by, user_name_cache, occurred_at, notes)
-                 VALUES (?, ?, ?, ?, ?, ?, ?)'
-            )->execute([$type, $item_id, $barrio_id, $user['id'], $user['display_name'], $now, $notes ?: null]);
+                'INSERT INTO transactions (type, item_id, holder_type, holder_id, performed_by, user_name_cache, occurred_at, notes)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
+            )->execute([$type, $item_id, $group_id ? 'group' : null, $group_id, $user['id'], $user['display_name'], $now, $notes ?: null]);
         }
         $pdo->commit();
     } catch (Throwable $e) {
@@ -420,12 +420,12 @@ function handle_confirm_adhoc_fill(): void {
 
     $pdo  = db();
     $stmt = $pdo->prepare(
-        'SELECT i.id, i.current_barrio_id, t.category,
+        'SELECT i.id, i.holder_type, i.holder_id, t.category,
                 CONCAT(t.name, \' #\', i.item_number) AS cube_label,
-                b.name AS barrio_name
+                g.name AS group_name
          FROM equipment_items i
          JOIN equipment_types t ON t.id = i.equipment_type_id
-         LEFT JOIN barrios b    ON b.id = i.current_barrio_id
+         LEFT JOIN groups g     ON g.id = i.holder_id AND i.holder_type = \'group\'
          WHERE i.qr_code = ?'
     );
     $stmt->execute([$cube_qr]);
@@ -435,7 +435,7 @@ function handle_confirm_adhoc_fill(): void {
     if ($cube['category'] !== 'water_cube') json_error('Not a water cube', 409);
 
     $cube_id   = (int)$cube['id'];
-    $entity_id = $cube['current_barrio_id'] ? (int)$cube['current_barrio_id'] : null;
+    $entity_id = ($cube['holder_type'] === 'group' && $cube['holder_id']) ? (int)$cube['holder_id'] : null;
 
     $now = date('Y-m-d H:i:s');
     $pdo->beginTransaction();
@@ -443,17 +443,17 @@ function handle_confirm_adhoc_fill(): void {
         if ($entity_id) {
             // Decrement credit if available (don't block if 0)
             $pdo->prepare(
-                "UPDATE barrio_entitlements be
-                 JOIN consumable_types ct ON ct.id = be.type_id AND ct.key_name = 'water_fill'
-                 SET be.distributed = be.distributed + 1
-                 WHERE be.barrio_id = ? AND (be.purchased - be.distributed) > 0"
+                "UPDATE group_entitlements ge
+                 JOIN consumable_types ct ON ct.id = ge.type_id AND ct.key_name = 'water_fill'
+                 SET ge.distributed = ge.distributed + 1
+                 WHERE ge.group_id = ? AND (ge.purchased - ge.distributed) > 0"
             )->execute([$entity_id]);
         }
 
         $pdo->prepare(
-            'INSERT INTO transactions (type, item_id, barrio_id, performed_by, user_name_cache, occurred_at, notes)
-             VALUES (\'fill_adhoc\', ?, ?, ?, ?, ?, ?)'
-        )->execute([$cube_id, $entity_id, $user['id'], $user['display_name'], $now, $notes ?: null]);
+            'INSERT INTO transactions (type, item_id, holder_type, holder_id, performed_by, user_name_cache, occurred_at, notes)
+             VALUES (\'fill_adhoc\', ?, ?, ?, ?, ?, ?, ?)'
+        )->execute([$cube_id, $entity_id ? 'group' : null, $entity_id, $user['id'], $user['display_name'], $now, $notes ?: null]);
 
         $pdo->commit();
     } catch (Throwable $e) {
@@ -464,7 +464,7 @@ function handle_confirm_adhoc_fill(): void {
     json_ok([
         'success'     => true,
         'cube_label'  => $cube['cube_label'],
-        'entity_name' => $cube['barrio_name'],
+        'entity_name' => $cube['group_name'],
     ]);
 }
 
@@ -479,12 +479,12 @@ function handle_cube_status(): void {
 
     $pdo  = db();
     $stmt = $pdo->prepare(
-        'SELECT i.id, i.route_position, i.latitude, i.longitude, t.category,
+        'SELECT i.id, i.route_position, i.latitude, i.longitude, i.holder_type, i.holder_id, t.category,
                 CONCAT(t.name, \' #\', i.item_number) AS cube_label,
-                b.name AS entity_name, b.id AS entity_id
+                g.name AS entity_name, g.id AS entity_id
          FROM equipment_items i
          JOIN equipment_types t ON t.id = i.equipment_type_id
-         LEFT JOIN barrios b    ON b.id = i.current_barrio_id
+         LEFT JOIN groups g     ON g.id = i.holder_id AND i.holder_type = \'group\'
          WHERE i.qr_code = ?'
     );
     $stmt->execute([$qr]);
@@ -498,7 +498,7 @@ function handle_cube_status(): void {
     $cube_id   = (int)$cube['id'];
     $entity_id = $cube['entity_id'] ? (int)$cube['entity_id'] : null;
 
-    // Effective location: the cube's own override if set, else the barrio's
+    // Effective location: the cube's own override if set, else the group's
     // single storage location (if unambiguous), else none.
     $latitude = $cube['latitude']  !== null ? (float)$cube['latitude']  : null;
     $longitude = $cube['longitude'] !== null ? (float)$cube['longitude'] : null;
@@ -506,11 +506,11 @@ function handle_cube_status(): void {
     if ($latitude !== null && $longitude !== null) {
         $location_source = 'cube';
     } elseif ($entity_id) {
-        $barrio_loc = get_barrio_location($pdo, $entity_id);
-        if ($barrio_loc) {
-            $latitude  = $barrio_loc['latitude'];
-            $longitude = $barrio_loc['longitude'];
-            $location_source = 'barrio';
+        $group_loc = get_group_location($pdo, $entity_id);
+        if ($group_loc) {
+            $latitude  = $group_loc['latitude'];
+            $longitude = $group_loc['longitude'];
+            $location_source = 'group';
         }
     }
 
@@ -547,7 +547,7 @@ function handle_cube_status(): void {
         $stmt = $pdo->prepare(
             "SELECT (fills_requested - fills_completed) AS remaining
              FROM fill_requests
-             WHERE (cube_item_id = ? OR (cube_item_id IS NULL AND entity_type = 'barrio' AND entity_id = ?))
+             WHERE (cube_item_id = ? OR (cube_item_id IS NULL AND group_id = ?))
                AND status IN ('pending','partial')
              ORDER BY cube_item_id IS NULL ASC
              LIMIT 1"
@@ -579,14 +579,14 @@ function handle_cube_status(): void {
         'credits_remaining' => $credits_remaining,
         'latitude'          => $latitude,
         'longitude'         => $longitude,
-        'location_source'   => $location_source,   // null | 'cube' | 'barrio'
+        'location_source'   => $location_source,   // null | 'cube' | 'group'
     ]);
 }
 
-// ─── GET /barrios/:id/cubes ───────────────────────────────────────────────────
-// Returns cubes checked out to a barrio with fill credit summary.
+// ─── GET /groups/:id/cubes ─────────────────────────────────────────────────────
+// Returns cubes checked out to a group with fill credit summary.
 // Used by the noinfo fill request UI.
-function handle_barrio_cubes(): void {
+function handle_group_cubes(): void {
     require_method('GET');
     require_auth();
     require_permission('request_fills');
@@ -596,12 +596,12 @@ function handle_barrio_cubes(): void {
 
     $pdo = db();
 
-    $stmt = $pdo->prepare('SELECT id, name FROM barrios WHERE id = ?');
+    $stmt = $pdo->prepare('SELECT id, name FROM groups WHERE id = ?');
     $stmt->execute([$id]);
-    $barrio = $stmt->fetch();
-    if (!$barrio) json_error('Barrio not found', 404);
+    $group = $stmt->fetch();
+    if (!$group) json_error('Group not found', 404);
 
-    // Cubes checked out to this barrio
+    // Cubes checked out to this group
     $stmt = $pdo->prepare(
         'SELECT i.id, i.qr_code, i.route_position,
                 CONCAT(t.name, \' #\', i.item_number) AS cube_label,
@@ -611,7 +611,7 @@ function handle_barrio_cubes(): void {
                  WHERE fr.cube_item_id = i.id AND fr.status IN (\'pending\',\'partial\')) AS has_request
          FROM equipment_items i
          JOIN equipment_types t ON t.id = i.equipment_type_id AND t.category = \'water_cube\'
-         WHERE i.current_barrio_id = ? AND i.status = \'checked-out\'
+         WHERE i.holder_type = \'group\' AND i.holder_id = ? AND i.status = \'checked-out\'
          ORDER BY i.route_position IS NULL, i.route_position, i.item_number'
     );
     $stmt->execute([$id]);
@@ -632,7 +632,7 @@ function handle_barrio_cubes(): void {
     $stmt = $pdo->prepare(
         "SELECT id, fills_requested, fills_completed, status
          FROM fill_requests
-         WHERE entity_type = 'barrio' AND entity_id = ? AND cube_item_id IS NULL
+         WHERE group_id = ? AND cube_item_id IS NULL
            AND status IN ('pending','partial')
          LIMIT 1"
     );
@@ -645,7 +645,8 @@ function handle_barrio_cubes(): void {
     }
 
     json_ok([
-        'barrio'            => ['id' => (int)$barrio['id'], 'name' => $barrio['name']],
+        'barrio'            => ['id' => (int)$group['id'], 'name' => $group['name']],
+        'group'             => ['id' => (int)$group['id'], 'name' => $group['name']],
         'cubes'             => $cubes,
         'credits_purchased' => (int)$credits['purchased'],
         'credits_used'      => (int)$credits['distributed'],
@@ -673,14 +674,14 @@ function handle_sell_fill_credits(): void {
     if ($quantity < 1) json_error('quantity must be at least 1');
 
     $pdo = db();
-    $stmt = $pdo->prepare('SELECT id, name FROM barrios WHERE id = ?');
+    $stmt = $pdo->prepare('SELECT id, name FROM groups WHERE id = ?');
     $stmt->execute([$entity_id]);
-    $barrio = $stmt->fetch();
-    if (!$barrio) json_error('Barrio not found', 404);
+    $group = $stmt->fetch();
+    if (!$group) json_error('Group not found', 404);
 
     // Upsert entitlement — add to purchased count
     $pdo->prepare(
-        "INSERT INTO barrio_entitlements (barrio_id, type_id, purchased, distributed)
+        "INSERT INTO group_entitlements (group_id, type_id, purchased, distributed)
          SELECT ?, ct.id, ?, 0 FROM consumable_types ct WHERE ct.key_name = 'water_fill'
          ON DUPLICATE KEY UPDATE purchased = purchased + VALUES(purchased)"
     )->execute([$entity_id, $quantity]);
@@ -692,7 +693,7 @@ function handle_sell_fill_credits(): void {
     // Log a distribution event for the audit trail
     $now = date('Y-m-d H:i:s');
     $pdo->prepare(
-        "INSERT INTO distribution_events (barrio_id, type_id, quantity, performed_by, user_name_cache, occurred_at, notes)
+        "INSERT INTO distribution_events (group_id, type_id, quantity, performed_by, user_name_cache, occurred_at, notes)
          SELECT ?, ct.id, ?, ?, ?, ?, ?
          FROM consumable_types ct WHERE ct.key_name = 'water_fill'"
     )->execute([$entity_id, $quantity, $user['id'], $user['display_name'], $now, $full_notes]);
@@ -700,7 +701,8 @@ function handle_sell_fill_credits(): void {
     $credits = _get_fill_credits($pdo, $entity_id);
     json_ok([
         'success'           => true,
-        'barrio_name'       => $barrio['name'],
+        'barrio_name'       => $group['name'],
+        'group_name'        => $group['name'],
         'added'             => $quantity,
         'credits_purchased' => (int)$credits['purchased'],
         'credits_used'      => (int)$credits['distributed'],
@@ -795,23 +797,23 @@ function handle_release_direction(): void {
 }
 
 // ─── GET /admin/fill-requests ─────────────────────────────────────────────────
-// Admin: list all currently pending/partial fill requests across all barrios.
+// Admin: list all currently pending/partial fill requests across all groups.
 function handle_admin_list_fill_requests(): void {
     require_method('GET');
     require_auth();
-    if (!has_permission('manage_barrios')) {
+    if (!has_permission('manage_groups')) {
         json_error('Forbidden', 403);
     }
 
     $stmt = db()->prepare(
-        "SELECT fr.id, fr.entity_id, b.name AS barrio_name,
+        "SELECT fr.id, fr.group_id AS entity_id, g.name AS barrio_name,
                 fr.cube_item_id,
                 CASE WHEN fr.cube_item_id IS NOT NULL
                      THEN CONCAT(t.name, ' #', i.item_number) ELSE NULL END AS cube_label,
                 fr.fills_requested, fr.fills_completed, fr.status,
                 fr.requested_at, u.display_name AS requested_by_name
          FROM fill_requests fr
-         JOIN barrios b        ON b.id = fr.entity_id
+         JOIN groups g          ON g.id = fr.group_id
          LEFT JOIN equipment_items i ON i.id = fr.cube_item_id
          LEFT JOIN equipment_types t ON t.id = i.equipment_type_id
          LEFT JOIN users u           ON u.id = fr.requested_by
@@ -838,19 +840,17 @@ function handle_admin_list_fill_requests(): void {
 function handle_admin_fill_route_cubes(): void {
     require_method('GET');
     require_auth();
-    if (!has_permission('manage_barrios') && !has_permission('manage_equipment')) {
+    if (!has_permission('manage_groups') && !has_permission('manage_equipment')) {
         json_error('Forbidden', 403);
     }
 
     $stmt = db()->prepare(
         "SELECT i.id, i.qr_code, i.route_position, i.status, i.latitude, i.longitude,
                 CONCAT(t.name, ' #', i.item_number) AS cube_label,
-                b.id AS barrio_id, b.name AS barrio_name,
-                (SELECT MAX(tx.occurred_at) FROM transactions tx
-                 WHERE tx.item_id = i.id AND tx.type IN ('fill_confirmed','fill_adhoc')) AS last_filled_at
+                g.id AS barrio_id, g.name AS barrio_name
          FROM equipment_items i
          JOIN equipment_types t ON t.id = i.equipment_type_id AND t.category = 'water_cube'
-         LEFT JOIN barrios b    ON b.id = i.current_barrio_id
+         LEFT JOIN groups g     ON g.id = i.holder_id AND i.holder_type = 'group'
          ORDER BY i.route_position IS NULL, i.route_position, i.id"
     );
     $stmt->execute();
@@ -874,7 +874,7 @@ function handle_admin_fill_route_cubes(): void {
 function handle_admin_save_fill_route(): void {
     require_method('PUT');
     require_auth();
-    if (!has_permission('manage_barrios') && !has_permission('manage_equipment')) {
+    if (!has_permission('manage_groups') && !has_permission('manage_equipment')) {
         json_error('Forbidden', 403);
     }
     verify_csrf();
@@ -909,13 +909,13 @@ function handle_admin_save_fill_route(): void {
 
 // ─── POST /admin/fill-route/apply-barrio-locations ───────────────────────────
 // Admin: backfill GPS coordinates on water cubes that are already checked out
-// to a barrio but have no coordinates yet, using that barrio's storage location
-// (only when the barrio has exactly one — same rule the checkout flow uses).
+// to a group but have no coordinates yet, using that group's storage location
+// (only when the group has exactly one — same rule the checkout flow uses).
 // Never overwrites a cube that already has coordinates.
 function handle_admin_apply_barrio_locations(): void {
     require_method('POST');
     require_auth();
-    if (!has_permission('manage_barrios') && !has_permission('manage_equipment')) {
+    if (!has_permission('manage_groups') && !has_permission('manage_equipment')) {
         json_error('Forbidden', 403);
     }
     verify_csrf();
@@ -923,26 +923,26 @@ function handle_admin_apply_barrio_locations(): void {
     $pdo = db();
 
     $stmt = $pdo->prepare(
-        "SELECT i.id, i.current_barrio_id
+        "SELECT i.id, i.holder_id
          FROM equipment_items i
          JOIN equipment_types t ON t.id = i.equipment_type_id AND t.category = 'water_cube'
-         WHERE i.current_barrio_id IS NOT NULL AND i.latitude IS NULL"
+         WHERE i.holder_type = 'group' AND i.holder_id IS NOT NULL AND i.latitude IS NULL"
     );
     $stmt->execute();
     $cubes = $stmt->fetchAll();
 
     $applied         = 0;
     $skipped         = 0;
-    $barrio_loc_cache = []; // barrio_id -> location array | null, via get_barrio_location()
+    $group_loc_cache = []; // group_id -> location array | null, via get_group_location()
 
     foreach ($cubes as $cube) {
-        $barrio_id = (int)$cube['current_barrio_id'];
+        $group_id = (int)$cube['holder_id'];
 
-        if (!array_key_exists($barrio_id, $barrio_loc_cache)) {
-            $barrio_loc_cache[$barrio_id] = get_barrio_location($pdo, $barrio_id);
+        if (!array_key_exists($group_id, $group_loc_cache)) {
+            $group_loc_cache[$group_id] = get_group_location($pdo, $group_id);
         }
 
-        $loc = $barrio_loc_cache[$barrio_id];
+        $loc = $group_loc_cache[$group_id];
         if ($loc === null) { $skipped++; continue; }
 
         $pdo->prepare('UPDATE equipment_items SET latitude = ?, longitude = ? WHERE id = ?')
@@ -959,14 +959,14 @@ function handle_admin_apply_barrio_locations(): void {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-function _get_fill_credits(\PDO $pdo, int $barrio_id): array {
+function _get_fill_credits(\PDO $pdo, int $group_id): array {
     $stmt = $pdo->prepare(
-        "SELECT be.purchased, be.distributed
-         FROM barrio_entitlements be
-         JOIN consumable_types ct ON ct.id = be.type_id AND ct.key_name = 'water_fill'
-         WHERE be.barrio_id = ?"
+        "SELECT ge.purchased, ge.distributed
+         FROM group_entitlements ge
+         JOIN consumable_types ct ON ct.id = ge.type_id AND ct.key_name = 'water_fill'
+         WHERE ge.group_id = ?"
     );
-    $stmt->execute([$barrio_id]);
+    $stmt->execute([$group_id]);
     $row = $stmt->fetch();
     return $row ? ['purchased' => (int)$row['purchased'], 'distributed' => (int)$row['distributed']]
                 : ['purchased' => 0, 'distributed' => 0];
@@ -976,21 +976,21 @@ function _get_pending_fills(\PDO $pdo, int $entity_id): int {
     $stmt = $pdo->prepare(
         "SELECT COALESCE(SUM(fills_requested - fills_completed), 0) AS pending
          FROM fill_requests
-         WHERE entity_type = 'barrio' AND entity_id = ? AND status IN ('pending','partial')"
+         WHERE group_id = ? AND status IN ('pending','partial')"
     );
     $stmt->execute([$entity_id]);
     return (int)$stmt->fetchColumn();
 }
 
-function _first_cube_item_id(\PDO $pdo, int $barrio_id): ?int {
+function _first_cube_item_id(\PDO $pdo, int $group_id): ?int {
     $stmt = $pdo->prepare(
         "SELECT i.id FROM equipment_items i
          JOIN equipment_types t ON t.id = i.equipment_type_id AND t.category = 'water_cube'
-         WHERE i.current_barrio_id = ? AND i.status = 'checked-out'
+         WHERE i.holder_type = 'group' AND i.holder_id = ? AND i.status = 'checked-out'
          ORDER BY i.route_position IS NULL, i.route_position
          LIMIT 1"
     );
-    $stmt->execute([$barrio_id]);
+    $stmt->execute([$group_id]);
     $id = $stmt->fetchColumn();
     return $id !== false ? (int)$id : null;
 }

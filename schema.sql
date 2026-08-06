@@ -30,68 +30,80 @@ CREATE TABLE IF NOT EXISTS users (
 
 -- ─── Departments ──────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS departments (
-    id         INT UNSIGNED NOT NULL AUTO_INCREMENT,
-    name       VARCHAR(128) NOT NULL,
-    qr_code    VARCHAR(64)  NULL,
-    slug       VARCHAR(64)  NOT NULL,
-    sub_entity ENUM('barrio','artist','none') NOT NULL DEFAULT 'none',
-    sort_order SMALLINT UNSIGNED NOT NULL DEFAULT 0,
-    is_active  TINYINT(1)   NOT NULL DEFAULT 1,
-    created_at DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    id             INT UNSIGNED NOT NULL AUTO_INCREMENT,
+    name           VARCHAR(128) NOT NULL,
+    qr_code        VARCHAR(64)  NULL,
+    slug           VARCHAR(64)  NOT NULL,
+    manages_groups TINYINT(1)   NOT NULL DEFAULT 0,
+    sort_order     SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    is_active      TINYINT(1)   NOT NULL DEFAULT 1,
+    created_at     DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     UNIQUE KEY uq_slug    (slug),
     UNIQUE KEY uq_name    (name),
     UNIQUE KEY uq_qr_code (qr_code)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- ─── Barrios ──────────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS barrios (
-    id               INT UNSIGNED  NOT NULL AUTO_INCREMENT,
-    name             VARCHAR(128)  NOT NULL,
-    qr_code          VARCHAR(64)   NULL,
-    dept_id          INT UNSIGNED  NULL,
-    sort_order       SMALLINT UNSIGNED NOT NULL DEFAULT 0,
-    arrival_status   ENUM('expected','on-site','departed') NOT NULL DEFAULT 'expected',
-    arrived_at       DATETIME      NULL,
-    arrived_by       INT UNSIGNED  NULL,
-    arrived_by_name  VARCHAR(128)  NULL,
-    orientation_done TINYINT(1)    NOT NULL DEFAULT 0,
-    departed_at      DATETIME      NULL,
-    departed_by      INT UNSIGNED  NULL,
-    departed_by_name VARCHAR(128)  NULL,
-    created_at       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
+-- ─── Groups ───────────────────────────────────────────────────────────────────
+-- Unifies what used to be two parallel entity types (barrios and artists): a
+-- group is any team/camp/collective that a department lends equipment to.
+-- enable_arrival_tracking / enable_consumable_entitlements are per-group
+-- capability flags rather than a hardcoded type split — a barrio-like group
+-- sets both, an artist-like group sets neither.
+CREATE TABLE IF NOT EXISTS groups (
+    id                              INT UNSIGNED  NOT NULL AUTO_INCREMENT,
+    name                            VARCHAR(128)  NOT NULL,
+    qr_code                         VARCHAR(64)   NULL,
+    dept_id                         INT UNSIGNED  NULL,
+    assigned_staff_id               INT UNSIGNED  NULL,
+    enable_arrival_tracking         TINYINT(1)    NOT NULL DEFAULT 0,
+    enable_consumable_entitlements  TINYINT(1)    NOT NULL DEFAULT 0,
+    sort_order                      SMALLINT UNSIGNED NOT NULL DEFAULT 0,
+    arrival_status                  ENUM('expected','on-site','departed') NOT NULL DEFAULT 'expected',
+    arrived_at                      DATETIME      NULL,
+    arrived_by                      INT UNSIGNED  NULL,
+    arrived_by_name                 VARCHAR(128)  NULL,
+    orientation_done                TINYINT(1)    NOT NULL DEFAULT 0,
+    departed_at                     DATETIME      NULL,
+    departed_by                     INT UNSIGNED  NULL,
+    departed_by_name                VARCHAR(128)  NULL,
+    created_at                      DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
-    UNIQUE KEY uq_name    (name),
-    UNIQUE KEY uq_qr_code (qr_code),
-    KEY idx_arrival_status (arrival_status),
-    KEY idx_barrio_dept    (dept_id),
-    CONSTRAINT fk_barrio_dept        FOREIGN KEY (dept_id)    REFERENCES departments(id) ON DELETE SET NULL,
-    CONSTRAINT fk_barrio_arrived_by  FOREIGN KEY (arrived_by)  REFERENCES users(id) ON DELETE SET NULL,
-    CONSTRAINT fk_barrio_departed_by FOREIGN KEY (departed_by) REFERENCES users(id) ON DELETE SET NULL
+    UNIQUE KEY uq_group_dept_name (dept_id, name),
+    UNIQUE KEY uq_group_qr_code   (qr_code),
+    KEY idx_group_arrival_status (arrival_status),
+    KEY idx_group_dept           (dept_id),
+    KEY idx_group_assigned       (assigned_staff_id),
+    CONSTRAINT fk_group_dept        FOREIGN KEY (dept_id)           REFERENCES departments(id) ON DELETE SET NULL,
+    CONSTRAINT fk_group_staff       FOREIGN KEY (assigned_staff_id) REFERENCES users(id)       ON DELETE SET NULL,
+    CONSTRAINT fk_group_arrived_by  FOREIGN KEY (arrived_by)        REFERENCES users(id)       ON DELETE SET NULL,
+    CONSTRAINT fk_group_departed_by FOREIGN KEY (departed_by)       REFERENCES users(id)       ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- ─── Artists ──────────────────────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS artists (
-    id                INT UNSIGNED NOT NULL AUTO_INCREMENT,
-    dept_id           INT UNSIGNED NOT NULL,
-    name              VARCHAR(128) NOT NULL,
-    assigned_staff_id INT UNSIGNED NULL,
-    sort_order        SMALLINT UNSIGNED NOT NULL DEFAULT 0,
-    created_at        DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    PRIMARY KEY (id),
-    UNIQUE KEY uq_dept_name (dept_id, name),
-    KEY idx_dept     (dept_id),
-    KEY idx_assigned (assigned_staff_id),
-    CONSTRAINT fk_artist_dept  FOREIGN KEY (dept_id)           REFERENCES departments(id) ON DELETE CASCADE,
-    CONSTRAINT fk_artist_staff FOREIGN KEY (assigned_staff_id) REFERENCES users(id)       ON DELETE SET NULL
+-- ─── Group roles ──────────────────────────────────────────────────────────────
+-- Per-group membership/role, mirroring user_dept_roles but scoped to a group
+-- instead of a department. Schema groundwork for group-scoped permissions;
+-- not yet wired into compute_permissions() — see Phase 3 (session/identity
+-- consolidation), which layers group-scoped shifts on top of this table.
+CREATE TABLE IF NOT EXISTS group_roles (
+    user_id  INT UNSIGNED NOT NULL,
+    group_id INT UNSIGNED NOT NULL,
+    role     ENUM('group_lead','group_member') NOT NULL DEFAULT 'group_member',
+    PRIMARY KEY (user_id, group_id),
+    CONSTRAINT fk_gr_user  FOREIGN KEY (user_id)  REFERENCES users(id)  ON DELETE CASCADE,
+    CONSTRAINT fk_gr_group FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ─── Shifts ───────────────────────────────────────────────────────────────────
+-- is_standing marks a group's self-service shift (see Phase 3): a group with
+-- one active standing shift lets anyone scanning its QR log in via the normal
+-- shift-token flow instead of a bespoke barrio-self-identify code path.
 CREATE TABLE IF NOT EXISTS shifts (
     id           INT UNSIGNED NOT NULL AUTO_INCREMENT,
     name         VARCHAR(128) NOT NULL,
     dept_id      INT UNSIGNED NULL,
-    barrio_id    INT UNSIGNED NULL,
+    group_id     INT UNSIGNED NULL,
+    is_standing  TINYINT(1)   NOT NULL DEFAULT 0,
     permissions  TEXT         NOT NULL,
     active_from  DATETIME     NOT NULL,
     active_until DATETIME     NOT NULL,
@@ -99,9 +111,10 @@ CREATE TABLE IF NOT EXISTS shifts (
     created_at   DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     KEY idx_dept   (dept_id),
+    KEY idx_group  (group_id),
     KEY idx_active (active_from, active_until),
     CONSTRAINT fk_shift_dept    FOREIGN KEY (dept_id)    REFERENCES departments(id) ON DELETE SET NULL,
-    CONSTRAINT fk_shift_barrio  FOREIGN KEY (barrio_id)  REFERENCES barrios(id)     ON DELETE SET NULL,
+    CONSTRAINT fk_shift_group   FOREIGN KEY (group_id)   REFERENCES groups(id)      ON DELETE SET NULL,
     CONSTRAINT fk_shift_creator FOREIGN KEY (created_by) REFERENCES users(id)       ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
@@ -169,23 +182,23 @@ CREATE TABLE IF NOT EXISTS consumable_types (
 INSERT IGNORE INTO consumable_types (name, key_name, sort_order)
 VALUES ('Water Fill', 'water_fill', 10);
 
--- ─── Barrio consumable entitlements ───────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS barrio_entitlements (
+-- ─── Group consumable entitlements ─────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS group_entitlements (
     id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
-    barrio_id   INT UNSIGNED NOT NULL,
+    group_id    INT UNSIGNED NOT NULL,
     type_id     INT UNSIGNED NOT NULL,
     purchased   SMALLINT UNSIGNED NOT NULL DEFAULT 0,
     distributed SMALLINT UNSIGNED NOT NULL DEFAULT 0,
     PRIMARY KEY (id),
-    UNIQUE KEY uq_barrio_type (barrio_id, type_id),
-    CONSTRAINT fk_ent_barrio FOREIGN KEY (barrio_id) REFERENCES barrios(id)         ON DELETE CASCADE,
-    CONSTRAINT fk_ent_type   FOREIGN KEY (type_id)   REFERENCES consumable_types(id)
+    UNIQUE KEY uq_group_type (group_id, type_id),
+    CONSTRAINT fk_ent_group FOREIGN KEY (group_id) REFERENCES groups(id)          ON DELETE CASCADE,
+    CONSTRAINT fk_ent_type  FOREIGN KEY (type_id)  REFERENCES consumable_types(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ─── Distribution event log ───────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS distribution_events (
     id              INT UNSIGNED NOT NULL AUTO_INCREMENT,
-    barrio_id       INT UNSIGNED NOT NULL,
+    group_id        INT UNSIGNED NOT NULL,
     type_id         INT UNSIGNED NOT NULL,
     quantity        SMALLINT     NOT NULL,
     performed_by    INT UNSIGNED,
@@ -193,17 +206,17 @@ CREATE TABLE IF NOT EXISTS distribution_events (
     occurred_at     DATETIME NOT NULL,
     notes           TEXT,
     PRIMARY KEY (id),
-    KEY idx_barrio   (barrio_id),
+    KEY idx_group    (group_id),
     KEY idx_occurred (occurred_at),
-    CONSTRAINT fk_dist_barrio FOREIGN KEY (barrio_id)    REFERENCES barrios(id),
-    CONSTRAINT fk_dist_type   FOREIGN KEY (type_id)      REFERENCES consumable_types(id),
-    CONSTRAINT fk_dist_user   FOREIGN KEY (performed_by) REFERENCES users(id) ON DELETE SET NULL
+    CONSTRAINT fk_dist_group FOREIGN KEY (group_id)     REFERENCES groups(id),
+    CONSTRAINT fk_dist_type  FOREIGN KEY (type_id)      REFERENCES consumable_types(id),
+    CONSTRAINT fk_dist_user  FOREIGN KEY (performed_by) REFERENCES users(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ─── Storage locations ────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS storage_locations (
     id          INT UNSIGNED NOT NULL AUTO_INCREMENT,
-    barrio_id   INT UNSIGNED NULL,
+    group_id    INT UNSIGNED NULL,
     name        VARCHAR(128) NOT NULL,
     description TEXT,
     latitude    DECIMAL(10,7) NULL,
@@ -212,7 +225,7 @@ CREATE TABLE IF NOT EXISTS storage_locations (
     created_at  DATETIME     NOT NULL DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (id),
     UNIQUE KEY uq_loc_qr (qr_code),
-    CONSTRAINT fk_loc_barrio FOREIGN KEY (barrio_id) REFERENCES barrios(id) ON DELETE SET NULL
+    CONSTRAINT fk_loc_group FOREIGN KEY (group_id) REFERENCES groups(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ─── Equipment types ──────────────────────────────────────────────────────────
@@ -235,17 +248,23 @@ CREATE TABLE IF NOT EXISTS equipment_types (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ─── Equipment items ──────────────────────────────────────────────────────────
+-- Holder model: owning_dept_id is the department whose pool the item belongs to
+-- (persists through sub-lending). holder_type/holder_id is who physically has
+-- it right now — NULL means it's sitting in the production pool (available).
+-- holder_id is polymorphic (departments/groups/users depending on holder_type)
+-- so it cannot carry a single FK constraint; the trigger below instead enforces
+-- that holder_type and status always agree, which is the invariant that
+-- actually caused bugs under the old four-nullable-column design.
 CREATE TABLE IF NOT EXISTS equipment_items (
     id                   INT UNSIGNED      NOT NULL AUTO_INCREMENT,
     equipment_type_id    INT UNSIGNED      NOT NULL,
     item_number          SMALLINT UNSIGNED NOT NULL,
     qr_code              VARCHAR(128)      NOT NULL,
     status               ENUM('available','checked-out','activated','used','retired') NOT NULL DEFAULT 'available',
-    current_dept_id      INT UNSIGNED      NULL,
+    owning_dept_id       INT UNSIGNED      NULL,
     dept_label           VARCHAR(128)      NULL,
-    current_barrio_id    INT UNSIGNED      NULL,
-    current_artist_id    INT UNSIGNED      NULL,
-    current_person_id    INT UNSIGNED      NULL,
+    holder_type          ENUM('department','group','person') NULL,
+    holder_id            INT UNSIGNED      NULL,
     current_location_id  INT UNSIGNED      NULL,
     home_location_id     INT UNSIGNED      NULL,
     require_home_location TINYINT(1)       NULL,
@@ -261,18 +280,34 @@ CREATE TABLE IF NOT EXISTS equipment_items (
     UNIQUE KEY uq_qr          (qr_code),
     UNIQUE KEY uq_type_number (equipment_type_id, item_number),
     KEY idx_status      (status),
-    KEY idx_dept_item   (current_dept_id),
-    KEY idx_barrio      (current_barrio_id),
-    KEY idx_artist_item (current_artist_id),
-    KEY idx_item_person (current_person_id),
+    KEY idx_dept_item   (owning_dept_id),
+    KEY idx_item_holder (holder_type, holder_id),
     CONSTRAINT fk_item_type       FOREIGN KEY (equipment_type_id)   REFERENCES equipment_types(id),
-    CONSTRAINT fk_item_dept       FOREIGN KEY (current_dept_id)     REFERENCES departments(id)       ON DELETE SET NULL,
-    CONSTRAINT fk_item_barrio     FOREIGN KEY (current_barrio_id)   REFERENCES barrios(id)           ON DELETE SET NULL,
-    CONSTRAINT fk_item_artist     FOREIGN KEY (current_artist_id)   REFERENCES artists(id)           ON DELETE SET NULL,
-    CONSTRAINT fk_item_person     FOREIGN KEY (current_person_id)   REFERENCES users(id)             ON DELETE SET NULL,
+    CONSTRAINT fk_item_dept       FOREIGN KEY (owning_dept_id)      REFERENCES departments(id)       ON DELETE SET NULL,
     CONSTRAINT fk_item_cur_loc    FOREIGN KEY (current_location_id) REFERENCES storage_locations(id) ON DELETE SET NULL,
     CONSTRAINT fk_item_home_loc   FOREIGN KEY (home_location_id)    REFERENCES storage_locations(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- Enforce holder_type/status consistency at the DB level — the exact gap that
+-- previously required a hand-run repair migration when app code set a holder
+-- without updating status (or vice versa).
+DELIMITER $$
+CREATE TRIGGER trg_equipment_items_holder_ins
+BEFORE INSERT ON equipment_items
+FOR EACH ROW
+IF (NEW.holder_type IS NULL) != (NEW.status IN ('available','retired'))
+    OR (NEW.holder_type IS NULL) != (NEW.holder_id IS NULL) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'equipment_items: holder_type/holder_id/status inconsistent';
+END IF$$
+
+CREATE TRIGGER trg_equipment_items_holder_upd
+BEFORE UPDATE ON equipment_items
+FOR EACH ROW
+IF (NEW.holder_type IS NULL) != (NEW.status IN ('available','retired'))
+    OR (NEW.holder_type IS NULL) != (NEW.holder_id IS NULL) THEN
+    SIGNAL SQLSTATE '45000' SET MESSAGE_TEXT = 'equipment_items: holder_type/holder_id/status inconsistent';
+END IF$$
+DELIMITER ;
 
 -- ─── Equipment type spec fields ───────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS equipment_type_spec_fields (
@@ -291,16 +326,16 @@ CREATE TABLE IF NOT EXISTS equipment_type_spec_fields (
         REFERENCES equipment_types(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
--- ─── Barrio equipment orders ──────────────────────────────────────────────────
-CREATE TABLE IF NOT EXISTS barrio_equipment_orders (
+-- ─── Group equipment orders ───────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS group_equipment_orders (
     id                INT UNSIGNED NOT NULL AUTO_INCREMENT,
-    barrio_id         INT UNSIGNED NOT NULL,
+    group_id          INT UNSIGNED NOT NULL,
     equipment_type_id INT UNSIGNED NOT NULL,
     quantity_ordered  SMALLINT UNSIGNED NOT NULL DEFAULT 0,
     PRIMARY KEY (id),
-    UNIQUE KEY uq_barrio_type (barrio_id, equipment_type_id),
-    CONSTRAINT fk_eqord_barrio FOREIGN KEY (barrio_id)         REFERENCES barrios(id)         ON DELETE CASCADE,
-    CONSTRAINT fk_eqord_type   FOREIGN KEY (equipment_type_id) REFERENCES equipment_types(id)
+    UNIQUE KEY uq_group_type (group_id, equipment_type_id),
+    CONSTRAINT fk_eqord_group FOREIGN KEY (group_id)          REFERENCES groups(id)          ON DELETE CASCADE,
+    CONSTRAINT fk_eqord_type  FOREIGN KEY (equipment_type_id) REFERENCES equipment_types(id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ─── Department equipment orders ──────────────────────────────────────────────
@@ -319,14 +354,16 @@ CREATE TABLE IF NOT EXISTS dept_equipment_orders (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ─── Transactions ─────────────────────────────────────────────────────────────
+-- holder_type/holder_id record who the item was assigned to or released from
+-- by this transaction, mirroring equipment_items' holder model. dept_id is
+-- always the owning department context (who lent it), independent of holder.
 CREATE TABLE IF NOT EXISTS transactions (
     id               INT UNSIGNED  NOT NULL AUTO_INCREMENT,
     type             ENUM('checkout','checkin','sub_checkout','sub_checkin','person_checkout','person_checkin','used','activated','fill_confirmed','fill_flagged','fill_requested','fill_adhoc','fill_cancelled','fill_delivered') NOT NULL,
     item_id          INT UNSIGNED  NOT NULL,
-    barrio_id        INT UNSIGNED  NULL,
     dept_id          INT UNSIGNED  NULL,
-    artist_id        INT UNSIGNED  NULL,
-    person_id        INT UNSIGNED  NULL,
+    holder_type      ENUM('department','group','person') NULL,
+    holder_id        INT UNSIGNED  NULL,
     location_id      INT UNSIGNED  NULL,
     performed_by     INT UNSIGNED  NULL,
     user_name_cache  VARCHAR(128)  NULL,
@@ -335,17 +372,13 @@ CREATE TABLE IF NOT EXISTS transactions (
     created_at       DATETIME      NOT NULL DEFAULT CURRENT_TIMESTAMP,
     notes            TEXT,
     PRIMARY KEY (id),
-    KEY idx_item       (item_id),
-    KEY idx_barrio     (barrio_id),
-    KEY idx_txn_dept   (dept_id),
-    KEY idx_txn_artist (artist_id),
-    KEY idx_trans_person (person_id),
-    KEY idx_occurred   (occurred_at),
-    KEY idx_type       (type),
+    KEY idx_item        (item_id),
+    KEY idx_txn_dept    (dept_id),
+    KEY idx_txn_holder  (holder_type, holder_id),
+    KEY idx_occurred    (occurred_at),
+    KEY idx_type        (type),
     CONSTRAINT fk_txn_item     FOREIGN KEY (item_id)      REFERENCES equipment_items(id),
-    CONSTRAINT fk_txn_barrio   FOREIGN KEY (barrio_id)    REFERENCES barrios(id)           ON DELETE SET NULL,
     CONSTRAINT fk_txn_dept     FOREIGN KEY (dept_id)      REFERENCES departments(id)        ON DELETE SET NULL,
-    CONSTRAINT fk_txn_artist   FOREIGN KEY (artist_id)    REFERENCES artists(id)            ON DELETE SET NULL,
     CONSTRAINT fk_txn_user     FOREIGN KEY (performed_by) REFERENCES users(id)              ON DELETE SET NULL,
     CONSTRAINT fk_txn_location FOREIGN KEY (location_id)  REFERENCES storage_locations(id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
@@ -446,12 +479,11 @@ CREATE TABLE IF NOT EXISTS fill_run_claims (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ─── Fill requests: per-run truck route feed ─────────────────────────────────
--- cube_item_id NULL  → barrio entity-level request (any of their cubes filled, up to fills_requested)
+-- cube_item_id NULL  → group-level request (any of their cubes filled, up to fills_requested)
 -- cube_item_id SET   → cube-specific request (NWP: route truck to that exact cube)
 CREATE TABLE IF NOT EXISTS fill_requests (
     id               INT UNSIGNED      NOT NULL AUTO_INCREMENT,
-    entity_type      ENUM('barrio')    NOT NULL DEFAULT 'barrio',
-    entity_id        INT UNSIGNED      NOT NULL,
+    group_id         INT UNSIGNED      NOT NULL,
     cube_item_id     INT UNSIGNED      NULL,
     fills_requested  TINYINT UNSIGNED  NOT NULL DEFAULT 1,
     fills_completed  TINYINT UNSIGNED  NOT NULL DEFAULT 0,
@@ -462,11 +494,11 @@ CREATE TABLE IF NOT EXISTS fill_requests (
     filled_by        INT UNSIGNED      NULL,
     notes            TEXT              NULL,
     PRIMARY KEY (id),
-    KEY idx_fr_entity  (entity_type, entity_id),
+    KEY idx_fr_group   (group_id),
     KEY idx_fr_cube    (cube_item_id),
     KEY idx_fr_status  (status),
     CONSTRAINT fk_fr_cube     FOREIGN KEY (cube_item_id)  REFERENCES equipment_items(id) ON DELETE SET NULL,
-    CONSTRAINT fk_fr_barrio   FOREIGN KEY (entity_id)     REFERENCES barrios(id)         ON DELETE CASCADE,
+    CONSTRAINT fk_fr_group    FOREIGN KEY (group_id)      REFERENCES groups(id)          ON DELETE CASCADE,
     CONSTRAINT fk_fr_req_user FOREIGN KEY (requested_by)  REFERENCES users(id)           ON DELETE SET NULL,
     CONSTRAINT fk_fr_fil_user FOREIGN KEY (filled_by)     REFERENCES users(id)           ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;

@@ -23,7 +23,7 @@ function handle_person_info(): void {
                 et.category
          FROM equipment_items ei
          JOIN equipment_types et ON et.id = ei.equipment_type_id
-         WHERE ei.current_person_id = ?
+         WHERE ei.holder_type = \'person\' AND ei.holder_id = ?
          ORDER BY et.name, ei.item_number'
     );
     $stmt->execute([(int)$person['id']]);
@@ -198,7 +198,7 @@ function handle_my_items(): void {
          FROM equipment_items ei
          JOIN equipment_types et ON et.id = ei.equipment_type_id
          LEFT JOIN storage_locations sl ON sl.id = ei.current_location_id
-         WHERE ei.current_person_id = ?
+         WHERE ei.holder_type = \'person\' AND ei.holder_id = ?
          ORDER BY et.name, ei.item_number'
     );
     $stmt->execute([(int)$user['id']]);

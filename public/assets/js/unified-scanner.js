@@ -1,15 +1,16 @@
 /**
- * Unified order-independent scanner.
- * Handles checkout sessions, checkin, voucher flows, and info lookups
- * from a single scanning interface.
+ * Unified order-independent scanner — the single lending/return flow.
+ * Handles checkout sessions (production/dept/group/person), checkin
+ * (including location-requirement and person-transfer), voucher
+ * activate/validate, and info lookups from one scanning interface.
  *
  * Session state persists across tab switches so a user can navigate away
  * and return without losing scanned items.
  */
 
-import { get, post } from './api.js?v=1.0.1';
+import { get, post, put } from './api.js?v=1.0.1';
 import { Scanner, scanFeedbackSuccess, scanFeedbackError } from './scanner.js?v=1.0.1';
-import { renderScanResult } from './scan-result.js?v=1.0.0';
+import { renderScanResult } from './scan-result.js?v=1.0.1';
 
 // Persistent session state (survives tab switches)
 let _session          = null;   // { entity, items, mode }
@@ -22,12 +23,14 @@ let _user             = null;
 let _container        = null;
 let _scanner          = null;   // Scanner instance
 let _identityMode     = false;  // true when scanner is open to scan a badge for auth
+let _awaitingLocation = null;   // { itemQr, item } — next scan is a location QR for a checkin in progress
 
 export function getSession() { return _session; }
 
 export function destroy() {
   _scanner?.stop();
   _scanner = null;
+  _awaitingLocation = null;
 }
 
 export function init(container, user, { extra = null, onTabSwitch, toast, updateBannerFn,
@@ -40,6 +43,7 @@ export function init(container, user, { extra = null, onTabSwitch, toast, update
   _requireIdentity    = requireIdentityFn;
   _onIdentityResolved = onIdentityResolvedFn;
   _identityMode       = extra?.identityMode ?? false;
+  _awaitingLocation   = null;
 
   // Start a fresh session if none exists
   if (!_session) {
@@ -49,6 +53,7 @@ export function init(container, user, { extra = null, onTabSwitch, toast, update
   // Handle extra context passed in (pre-load entity or item from deep link)
   if (extra?.entity) {
     _session.entity = extra.entity;
+    _groupDetail = null;
   }
   if (extra?.mode === 'confirm') {
     _session.mode = 'confirm';
@@ -67,8 +72,8 @@ export function init(container, user, { extra = null, onTabSwitch, toast, update
 
 function renderMode(container) {
   switch (_session.mode) {
-    case 'scanning':    renderScanning(container);    break;
-    case 'confirm':     renderConfirm(container);     break;
+    case 'scanning':      renderScanning(container);    break;
+    case 'confirm':       renderConfirm(container);     break;
     case 'entity-select': renderEntitySelect(container); break;
   }
 }
@@ -98,7 +103,7 @@ function renderScanning(container) {
             ${items.map((it, i) => `
               <div style="display:flex;align-items:center;justify-content:space-between;
                 padding:.4rem 0;border-bottom:0.5px solid var(--border);font-size:14px">
-                <span>${esc(it.name)}</span>
+                <span>${esc(it.name)}${it.warn ? `<span class="warn-tag" style="margin-left:.4rem">${esc(it.warn)}</span>` : ''}</span>
                 <button onclick="window._scanner.removeItem(${i})"
                   style="background:none;border:none;color:var(--text3);cursor:pointer;
                   font-size:16px;padding:0 4px">×</button>
@@ -156,7 +161,41 @@ function renderScanning(container) {
     if (e.key === 'Enter') window._scanner.manualSubmit();
   });
 
+  if (_awaitingLocation) {
+    const hint = document.getElementById('scan-hint');
+    if (hint) hint.textContent = 'Scan the storage location QR…';
+  }
+
   startCamera();
+}
+
+let _groupDetail      = null;   // fetched for group entities: { enable_arrival_tracking, arrival_status, entitlements, equipment_orders, ... }
+let _consumableTypesCache = null;
+let _capturedLocation = null;   // { latitude, longitude } from GPS capture during a group checkout
+let _deptLabel        = '';
+
+async function loadConsumableTypes() {
+  if (_consumableTypesCache) return _consumableTypesCache;
+  try {
+    const data = await get('/consumable-types');
+    _consumableTypesCache = data.types || [];
+  } catch { _consumableTypesCache = []; }
+  return _consumableTypesCache;
+}
+
+async function ensureGroupDetail(container) {
+  if (!_session.entity || _session.entity.type !== 'group') return;
+  if (_groupDetail && _groupDetail.__id === _session.entity.id) return;
+  try {
+    const [detail] = await Promise.all([
+      get('/groups/' + _session.entity.id),
+      loadConsumableTypes(),
+    ]);
+    _groupDetail = { ...detail.group, __id: _session.entity.id, entitlements: detail.entitlements || [] };
+  } catch {
+    _groupDetail = null;
+  }
+  if (_session.mode === 'confirm') renderMode(container);
 }
 
 function renderConfirm(container) {
@@ -173,11 +212,61 @@ function renderConfirm(container) {
     return;
   }
 
+  const isGroup = entity.type === 'group';
+  if (isGroup) ensureGroupDetail(container); // fires async; re-renders confirm when it lands
+
+  const needsArrival = isGroup && _groupDetail?.__id === entity.id
+    && _groupDetail.enable_arrival_tracking && _groupDetail.arrival_status === 'expected';
+  const showEntForm = needsArrival && _groupDetail.enable_consumable_entitlements && _consumableTypesCache?.length;
+
+  let arrivalForm = '';
+  if (showEntForm) {
+    const itemInputs = _consumableTypesCache.map(ct => {
+      const existing  = _groupDetail.entitlements.find(e => e.type_id === ct.id);
+      const purchased = existing?.purchased ?? 0;
+      const remaining = existing?.remaining ?? purchased;
+      const defaultVal = remaining > 0 ? remaining : 0;
+      return `
+        <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.5rem">
+          <label style="flex:1;font-size:14px;color:var(--text);margin:0">
+            ${esc(ct.name)}
+            ${purchased > 0 ? `<span style="font-size:12px;color:var(--text3)">(${purchased} purchased)</span>` : ''}
+          </label>
+          <input type="number" class="arrival-cons-input" data-type-id="${ct.id}"
+            min="0" value="${defaultVal}" inputmode="numeric" style="max-width:90px">
+        </div>`;
+    }).join('');
+    arrivalForm = `
+      <div class="arrival-form-section">
+        <div class="card-label">Record arrival</div>
+        ${itemInputs}
+        <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text);margin:.25rem 0">
+          <input type="checkbox" id="confirm-orientation" style="width:auto;margin:0;accent-color:var(--accent)">
+          Orientation completed
+        </label>
+      </div>`;
+  } else if (needsArrival) {
+    arrivalForm = `
+      <div class="arrival-form-section">
+        <div class="card-label">Record arrival</div>
+        <label style="display:flex;align-items:center;gap:8px;font-size:14px;color:var(--text);margin-bottom:.25rem">
+          <input type="checkbox" id="confirm-orientation" style="width:auto;margin:0;accent-color:var(--accent)">
+          Orientation completed
+        </label>
+      </div>`;
+  }
+
   container.innerHTML = `
     <div style="padding:1rem">
       <div style="font-size:17px;font-family:'Georgia',serif;margin-bottom:1rem">
         Lend to <strong>${esc(entity.name)}</strong>
       </div>
+
+      ${needsArrival ? `
+        <div class="card arrival-prompt-card">
+          <div class="card-label">Group not yet checked in</div>
+          <div style="font-size:13px;color:var(--warn)">Arrival will be recorded on confirmation.</div>
+        </div>` : ''}
 
       <div style="font-size:12px;text-transform:uppercase;letter-spacing:.07em;
         color:var(--text3);margin-bottom:.4rem">${items.length} item${items.length !== 1 ? 's' : ''}</div>
@@ -186,10 +275,30 @@ function renderConfirm(container) {
         ${items.map(it => `
           <div style="display:flex;justify-content:space-between;padding:.6rem .75rem;
             border-bottom:0.5px solid var(--border);font-size:14px">
-            <span>${esc(it.name)}</span>
+            <span>${esc(it.name)}${it.warn ? `<span class="warn-tag" style="margin-left:.4rem">${esc(it.warn)}</span>` : ''}</span>
             <span style="color:var(--text3);font-size:12px">${esc(it.qr)}</span>
           </div>`).join('')}
       </div>
+
+      <div class="field" style="margin-bottom:.75rem">
+        <label for="confirm-dept-label">Equipment label <span style="font-size:12px;color:var(--text3)">(optional)</span></label>
+        <input type="text" id="confirm-dept-label" placeholder="e.g. Generator 1, Sound Team"
+               value="${esc(_deptLabel)}" oninput="window._scanner.setLabel(this.value)">
+      </div>
+
+      ${isGroup ? `
+        <div id="confirm-loc-row" style="display:flex;align-items:center;gap:.75rem;margin-bottom:.5rem">
+          <button class="btn btn-sm btn-outline" id="confirm-loc-btn">📍 Capture location</button>
+          <span id="confirm-loc-status" style="font-size:13px;color:var(--text3)">Optional</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:.75rem">
+          <input type="checkbox" id="confirm-apply-group-loc" checked style="width:auto;margin:0;accent-color:var(--accent)">
+          <label for="confirm-apply-group-loc" style="font-size:13px;color:var(--text2)">
+            Set item location from ${esc(entity.name)}'s storage location (used if no GPS captured above)
+          </label>
+        </div>` : ''}
+
+      ${arrivalForm}
 
       <button class="btn primary" style="width:100%;margin-bottom:.5rem"
         id="confirm-lend-btn">Confirm lend</button>
@@ -197,21 +306,58 @@ function renderConfirm(container) {
         onclick="window._scanner.backToScan()">← Back to scanning</button>
     </div>`;
 
-  window._scanner = { backToScan: () => { _session.mode = 'scanning'; renderMode(_container); } };
+  window._scanner = {
+    backToScan: () => { _session.mode = 'scanning'; renderMode(_container); },
+    setLabel: (v) => { _deptLabel = v; },
+  };
+
+  if (isGroup) {
+    document.getElementById('confirm-loc-btn')?.addEventListener('click', captureConfirmLocation);
+  }
 
   document.getElementById('confirm-lend-btn')?.addEventListener('click', submitCheckout);
 }
 
+function captureConfirmLocation() {
+  const btn    = document.getElementById('confirm-loc-btn');
+  const status = document.getElementById('confirm-loc-status');
+  if (!navigator.geolocation) {
+    if (status) status.textContent = 'Geolocation not supported';
+    return;
+  }
+  if (btn) { btn.disabled = true; btn.textContent = 'Locating…'; }
+  navigator.geolocation.getCurrentPosition(
+    pos => {
+      _capturedLocation = { latitude: pos.coords.latitude, longitude: pos.coords.longitude };
+      if (status) status.textContent = `📍 ${_capturedLocation.latitude.toFixed(5)}, ${_capturedLocation.longitude.toFixed(5)}`;
+      if (btn) { btn.disabled = false; btn.textContent = '📍 Update'; }
+    },
+    () => {
+      if (status) status.textContent = 'Location unavailable';
+      if (btn) { btn.disabled = false; btn.textContent = '📍 Capture location'; }
+    },
+    { enableHighAccuracy: true, timeout: 10000 }
+  );
+}
+
 function renderEntitySelect(container) {
+  const perms = _user?.permissions || [];
+  const showDeptChips = perms.includes('checkout_equipment');
+
   container.innerHTML = `
     <div style="padding:1rem">
       <div style="font-size:17px;font-family:'Georgia',serif;margin-bottom:1rem">
         Who are you lending to?
       </div>
 
-      <input id="entity-search" type="text" placeholder="Search barrio or person…"
+      <input id="entity-search" type="text" placeholder="Search group or person…"
         style="width:100%;margin-bottom:.5rem" autocomplete="off">
       <div id="entity-results"></div>
+
+      ${showDeptChips ? `
+        <div style="margin-top:1rem;font-size:12px;text-transform:uppercase;
+          letter-spacing:.07em;color:var(--text3);margin-bottom:.4rem">Or pick a team</div>
+        <div id="entity-dept-chips" class="camp-chip-wrap"></div>` : ''}
 
       <div style="margin-top:1rem;font-size:12px;text-transform:uppercase;
         letter-spacing:.07em;color:var(--text3);margin-bottom:.4rem">Or scan their QR</div>
@@ -223,6 +369,8 @@ function renderEntitySelect(container) {
     </div>`;
 
   window._scanner = { backToScan: () => { _session.mode = 'scanning'; renderMode(_container); } };
+
+  if (showDeptChips) loadDeptChips();
 
   let searchTimer;
   document.getElementById('entity-search')?.addEventListener('input', e => {
@@ -238,13 +386,46 @@ function renderEntitySelect(container) {
   });
 }
 
+let _deptsCache = null;
+
+async function loadDeptChips() {
+  const wrap = document.getElementById('entity-dept-chips');
+  if (!wrap) return;
+  try {
+    if (!_deptsCache) {
+      const data = await get('/departments');
+      _deptsCache = data.departments || [];
+    }
+    if (!_deptsCache.length) { wrap.innerHTML = ''; return; }
+    wrap.innerHTML = _deptsCache.map(d =>
+      `<button class="camp-chip" data-id="${d.id}">${esc(d.name)}</button>`
+    ).join('');
+    wrap.querySelectorAll('button[data-id]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const d = _deptsCache.find(x => x.id === +btn.dataset.id);
+        if (!d) return;
+        _setSessionEntity({ type: 'dept', id: d.id, name: d.name });
+      });
+    });
+  } catch { wrap.innerHTML = ''; }
+}
+
+function _setSessionEntity(entity) {
+  _session.entity = entity;
+  _groupDetail = null;
+  if (_session.items.length > 0) _session.mode = 'confirm';
+  else _session.mode = 'scanning';
+  _updateBanner();
+  renderMode(_container);
+}
+
 let _barriosCache = null;
 
 async function loadBarriosCache() {
   if (_barriosCache) return _barriosCache;
   try {
-    const data = await get('/camps');
-    _barriosCache = data.camps || [];
+    const data = await get('/groups');
+    _barriosCache = data.groups || [];
     try { localStorage.setItem('barrio_camps', JSON.stringify(_barriosCache)); } catch {}
   } catch {
     try { _barriosCache = JSON.parse(localStorage.getItem('barrio_camps') || '[]'); }
@@ -262,10 +443,10 @@ async function searchEntities(q) {
 
   try {
     if (perms.includes('sub_checkout') || perms.includes('checkout_equipment')) {
-      // Search barrios
+      // Search groups
       const barrios = await loadBarriosCache();
       barrios.filter(b => b.name.toLowerCase().includes(q.toLowerCase())).slice(0, 5).forEach(b => {
-        matches.push({ type: 'barrio', id: b.id, name: b.name });
+        matches.push({ type: 'group', id: b.id, name: b.name });
       });
     }
     if (perms.includes('person_checkout') || perms.includes('sub_checkout')) {
@@ -285,21 +466,14 @@ async function searchEntities(q) {
     <button data-idx="${i}" style="display:flex;align-items:center;gap:.5rem;width:100%;
       padding:.5rem .25rem;background:none;border:none;border-bottom:0.5px solid var(--border);
       text-align:left;cursor:pointer;font-size:14px;color:var(--text)">
-      <span style="font-size:1rem">${m.type === 'barrio' ? '⛺' : '👤'}</span>
+      <span style="font-size:1rem">${m.type === 'group' ? '⛺' : '👤'}</span>
       ${esc(m.name)}
     </button>`).join('');
 
   results.querySelectorAll('button[data-idx]').forEach(btn => {
     btn.addEventListener('click', () => {
       const m = matches[+btn.dataset.idx];
-      _session.entity = m;
-      if (_session.items.length > 0) {
-        _session.mode = 'confirm';
-      } else {
-        _session.mode = 'scanning';
-      }
-      _updateBanner();
-      renderMode(_container);
+      _setSessionEntity(m);
     });
   });
 }
@@ -328,6 +502,13 @@ function resumeCamera() {
 // ── QR Lookup & Routing ───────────────────────────────────────────────────────
 
 async function handleLookup(qr) {
+  // If we're mid-checkin waiting for a storage-location QR, route there instead
+  // of the normal item/entity lookup.
+  if (_awaitingLocation) {
+    await handleLocationForCheckin(qr);
+    return;
+  }
+
   // Detect person badge URL: https://host/person.html?token=TOKEN
   const badgeMatch = qr.match(/\/person\.html[?#&][^"]*[?&]?token=([a-f0-9]{64})/i);
   if (badgeMatch) {
@@ -548,6 +729,7 @@ async function handlePersonBadgeScan(token) {
           </div>`;
         document.getElementById('badge-switch-btn')?.addEventListener('click', () => {
           _session.entity = entity;
+          _groupDetail = null;
           _updateBanner?.();
           overlay.style.display = 'none';
           renderMode(_container);
@@ -556,6 +738,7 @@ async function handlePersonBadgeScan(token) {
       }
 
       _session.entity = entity;
+      _groupDetail = null;
       _updateBanner?.();
       overlay.style.display = 'none';
       renderMode(_container);
@@ -578,8 +761,8 @@ async function onScanAction(action, payload, rawQr, lookupData) {
     case 'entity_select': {
       // Entity QR scanned — set as checkout target
       let entity = null;
-      if (lookupData.type === 'barrio') {
-        entity = { type: 'barrio', id: lookupData.id, name: lookupData.name };
+      if (lookupData.type === 'group') {
+        entity = { type: 'group', id: lookupData.id, name: lookupData.name };
       } else if (lookupData.type === 'department') {
         entity = { type: 'dept', id: lookupData.id, name: lookupData.name };
       } else if (lookupData.type === 'person') {
@@ -607,6 +790,7 @@ async function onScanAction(action, payload, rawQr, lookupData) {
           </div>`;
         document.getElementById('switch-entity-btn')?.addEventListener('click', () => {
           _session.entity = entity;
+          _groupDetail = null;
           _updateBanner();
           overlay.style.display = 'none';
           renderMode(_container);
@@ -616,6 +800,7 @@ async function onScanAction(action, payload, rawQr, lookupData) {
 
       if (entity) {
         _session.entity = entity;
+        _groupDetail = null;
         _updateBanner();
       }
       overlay.style.display = 'none';
@@ -624,14 +809,22 @@ async function onScanAction(action, payload, rawQr, lookupData) {
     }
 
     case 'checkout_start': {
-      // Available item scanned — add to items list
+      // Item scanned — add to lending cart (works whether the item is
+      // currently available or already checked out elsewhere — the final
+      // submit always force-transfers, matching the previous Lend wizard).
       if (_session.items.some(i => i.qr === rawQr)) {
         _toast('Already in list');
         overlay.style.display = 'none';
         resumeCamera();
         return;
       }
-      _session.items.push({ qr: rawQr, name: lookupData.name, id: lookupData.id });
+      let warn = null;
+      if (lookupData.status === 'checked-out') {
+        const holder = lookupData.current_person?.name || lookupData.current_group?.name
+          || lookupData.holder_dept?.name || lookupData.current_dept?.name || null;
+        if (holder) warn = `Out to ${holder}`;
+      }
+      _session.items.push({ qr: rawQr, name: lookupData.name, id: lookupData.id, warn });
       _updateBanner();
       overlay.style.display = 'none';
       renderMode(_container);
@@ -649,10 +842,7 @@ async function onScanAction(action, payload, rawQr, lookupData) {
     }
 
     case 'checkin': {
-      await doAction(() => post('/checkin', { item_qr: rawQr }), 'Returned');
-      scanFeedbackSuccess();
-      overlay.style.display = 'none';
-      resumeCamera();
+      startCheckinFlow(rawQr, lookupData);
       break;
     }
 
@@ -700,6 +890,321 @@ async function doAction(apiFn, successMsg) {
   }
 }
 
+// ── Checkin flow (return equipment) ─────────────────────────────────────────
+// Ported from the old checkin.js "return" mode: location-requirement
+// enforcement, optional person-transfer, and a post-return home-location
+// update prompt — none of this existed in the plain immediate-post checkin
+// action this replaces.
+
+function _checkedOutToLabel(item) {
+  if (item.current_person) return `Out — ${item.current_person.name}`;
+  if (item.current_group)  return `Out — ${item.current_group.name}`;
+  if (item.holder_dept)    return `In dept pool — ${item.holder_dept.name}`;
+  if (item.current_dept)   return `In dept pool — ${item.current_dept.name}`;
+  return item.category ?? null;
+}
+
+function startCheckinFlow(qr, item) {
+  const overlay = document.getElementById('scan-result-overlay');
+  const inner   = document.getElementById('scan-result-inner');
+  if (!overlay || !inner) return;
+
+  const requireHome = item.require_home_location;
+  const requireAny  = item.require_any_location;
+  const homeLocName = item.home_location?.name;
+
+  if (requireHome || requireAny) {
+    const hint = requireHome
+      ? `Scan location QR to return (must go to: ${homeLocName || 'home location'})`
+      : 'Scan a storage location QR to return this item';
+
+    inner.innerHTML = `
+      <div class="scan-card">
+        <div class="scan-card-icon">📦</div>
+        <div class="scan-card-body">
+          <div class="scan-card-name">${esc(item.name)}</div>
+          <div class="scan-card-sub">${esc(hint)}</div>
+        </div>
+      </div>
+      <div class="scan-actions">
+        <button class="btn primary scan-action-btn" id="checkin-scan-loc-btn">Scan location</button>
+        <button class="btn scan-action-btn" onclick="window._scanner.closeOverlay()">Cancel</button>
+      </div>`;
+
+    document.getElementById('checkin-scan-loc-btn')?.addEventListener('click', () => {
+      _awaitingLocation = { itemQr: qr, item };
+      overlay.style.display = 'none';
+      _toast('Scan the storage location QR');
+      resumeCamera();
+    });
+    return;
+  }
+
+  presentCheckinConfirm(qr, item, null);
+}
+
+async function handleLocationForCheckin(locQr) {
+  const { itemQr, item } = _awaitingLocation;
+  const overlay = document.getElementById('scan-result-overlay');
+  const inner   = document.getElementById('scan-result-inner');
+  if (!overlay || !inner) { _awaitingLocation = null; return; }
+
+  inner.innerHTML = '<div class="empty"><span class="spinner"></span></div>';
+  overlay.style.display = '';
+
+  let locData;
+  try {
+    locData = await get('/locations/lookup?qr=' + encodeURIComponent(locQr));
+  } catch (e) {
+    inner.innerHTML = `<div style="color:var(--text2);padding:1rem">Location lookup failed: ${esc(e.message)}</div>
+      <div class="scan-actions"><button class="btn scan-action-btn" onclick="window._scanner.closeOverlay()">Close</button></div>`;
+    return;
+  }
+
+  if (!locData || locData.type !== 'storage_location') {
+    inner.innerHTML = `
+      <div class="scan-card">
+        <div class="scan-card-icon" style="color:var(--danger)">✕</div>
+        <div class="scan-card-body"><div class="scan-card-name">That's not a storage location QR</div></div>
+      </div>
+      <div class="scan-actions">
+        <button class="btn primary scan-action-btn" id="checkin-retry-loc-btn">Try again</button>
+        <button class="btn scan-action-btn" onclick="window._scanner.closeOverlay()">Cancel</button>
+      </div>`;
+    document.getElementById('checkin-retry-loc-btn')?.addEventListener('click', () => {
+      overlay.style.display = 'none';
+      resumeCamera();
+    });
+    return;
+  }
+
+  if (item.require_home_location && item.home_location && locData.id !== item.home_location.id) {
+    inner.innerHTML = `
+      <div class="scan-card">
+        <div class="scan-card-icon" style="color:var(--danger)">✕</div>
+        <div class="scan-card-body">
+          <div class="scan-card-name">Wrong location</div>
+          <div class="scan-card-sub">Must return to: ${esc(item.home_location.name)}</div>
+        </div>
+      </div>
+      <div class="scan-actions">
+        <button class="btn primary scan-action-btn" id="checkin-retry-loc-btn">Scan again</button>
+        <button class="btn scan-action-btn" onclick="window._scanner.closeOverlay()">Cancel</button>
+      </div>`;
+    document.getElementById('checkin-retry-loc-btn')?.addEventListener('click', () => {
+      overlay.style.display = 'none';
+      resumeCamera();
+    });
+    return;
+  }
+
+  _awaitingLocation = null;
+  scanFeedbackSuccess();
+  presentCheckinConfirm(itemQr, item, { id: locData.id, name: locData.name, qr: locQr });
+}
+
+function presentCheckinConfirm(qr, item, locationInfo) {
+  const overlay = document.getElementById('scan-result-overlay');
+  const inner   = document.getElementById('scan-result-inner');
+  if (!overlay || !inner) return;
+
+  const subtitle = _checkedOutToLabel(item);
+  const locSub = locationInfo ? (subtitle ? subtitle + ' · ' : '') + '📍 ' + locationInfo.name : subtitle;
+
+  const homeLat = item.home_location?.latitude;
+  const homeLng = item.home_location?.longitude;
+  const navBtn = (homeLat != null)
+    ? `<a class="btn scan-action-btn" style="display:block;text-align:center;text-decoration:none"
+         href="https://maps.apple.com/?daddr=${homeLat},${homeLng}" target="_blank">
+         Navigate to ${esc(item.home_location.name)}</a>`
+    : '';
+
+  const canTransfer = item.current_person && item.borrowable && item.borrow_eligible;
+
+  // Reaching this screen with no locationInfo always means neither require
+  // flag was set (a required scan is enforced earlier, before this screen
+  // ever renders) — so return is never blocked on a location. Still offer
+  // it as an optional, one-tap capture: encouraged, never required, and
+  // useful even for items with no configured home location.
+  const offerOptionalScan = !locationInfo;
+
+  inner.innerHTML = `
+    <div class="scan-card">
+      <div class="scan-card-icon">📦</div>
+      <div class="scan-card-body">
+        <div class="scan-card-name">${esc(item.name)}</div>
+        ${locSub ? `<div class="scan-card-sub">${esc(locSub)}</div>` : ''}
+      </div>
+    </div>
+    <div class="scan-actions">
+      <button class="btn primary scan-action-btn" id="checkin-confirm-btn">Confirm return</button>
+      ${offerOptionalScan ? `<button class="btn scan-action-btn" id="checkin-optional-loc-btn">📍 Log where this went (optional)</button>` : ''}
+      ${canTransfer ? `<button class="btn scan-action-btn" id="checkin-transfer-btn">Transfer to different person</button>` : ''}
+      ${navBtn}
+      <button class="btn scan-action-btn" onclick="window._scanner.closeOverlay()">Cancel</button>
+    </div>`;
+
+  document.getElementById('checkin-confirm-btn')?.addEventListener('click', () => doCheckin(qr, item, locationInfo));
+  document.getElementById('checkin-optional-loc-btn')?.addEventListener('click', () => {
+    _awaitingLocation = { itemQr: qr, item };
+    overlay.style.display = 'none';
+    _toast('Scan the storage location QR');
+    resumeCamera();
+  });
+  document.getElementById('checkin-transfer-btn')?.addEventListener('click', () => startTransferFlow(item, qr, locationInfo));
+}
+
+async function doCheckin(qr, item, locationInfo) {
+  const overlay = document.getElementById('scan-result-overlay');
+  const inner   = document.getElementById('scan-result-inner');
+
+  try {
+    const body = { item_qr: qr };
+    if (locationInfo) body.location_qr = locationInfo.qr;
+    const res = await post('/checkin', body);
+
+    if (res.__offline) {
+      scanFeedbackSuccess();
+      _toast('Saved offline — will sync');
+      overlay.style.display = 'none';
+      resumeCamera();
+      return;
+    }
+    if (!res.success) {
+      scanFeedbackError();
+      _toast('Item was not checked out');
+      overlay.style.display = 'none';
+      resumeCamera();
+      return;
+    }
+
+    scanFeedbackSuccess();
+    _toast(`Returned ${item.name}${locationInfo ? ' → ' + locationInfo.name : ''}`);
+    await maybePromptHomeLocationUpdate(item, locationInfo);
+  } catch (e) {
+    scanFeedbackError();
+    _toast('Error: ' + e.message);
+    overlay.style.display = 'none';
+    resumeCamera();
+  }
+}
+
+async function maybePromptHomeLocationUpdate(item, locationInfo) {
+  const overlay   = document.getElementById('scan-result-overlay');
+  const inner     = document.getElementById('scan-result-inner');
+  const canManage = (_user?.permissions || []).includes('manage_equipment');
+  const homeId    = item?.home_location?.id;
+  const locId     = locationInfo?.id;
+
+  if (canManage && homeId && locId && locId !== homeId && inner) {
+    inner.innerHTML = `
+      <div class="scan-card">
+        <div class="scan-card-icon">📍</div>
+        <div class="scan-card-body">
+          <div class="scan-card-name">Update home location?</div>
+          <div class="scan-card-sub">Home is "${esc(item.home_location.name)}". Make "${esc(locationInfo.name)}" the new home for ${esc(item.name)}?</div>
+        </div>
+      </div>
+      <div class="scan-actions">
+        <button class="btn primary scan-action-btn" id="checkin-set-home-btn">Set home to ${esc(locationInfo.name)}</button>
+        <button class="btn scan-action-btn" onclick="window._scanner.closeOverlay()">Keep current home</button>
+      </div>`;
+    document.getElementById('checkin-set-home-btn')?.addEventListener('click', async () => {
+      try {
+        await put('/admin/items', { id: item.id, home_location_id: locationInfo.id });
+        _toast(`Home location updated to ${locationInfo.name}`);
+      } catch (e) {
+        _toast('Could not update: ' + e.message);
+      }
+      overlay.style.display = 'none';
+      resumeCamera();
+    });
+    return;
+  }
+
+  overlay.style.display = 'none';
+  resumeCamera();
+}
+
+// ── Person-transfer flow (return-and-reassign in one step) ─────────────────
+
+function startTransferFlow(item, qr, locationInfo) {
+  const inner = document.getElementById('scan-result-inner');
+  if (!inner) return;
+
+  inner.innerHTML = `
+    <div class="scan-card">
+      <div class="scan-card-icon">👤</div>
+      <div class="scan-card-body"><div class="scan-card-name">Transfer: ${esc(item.name)}</div></div>
+    </div>
+    <div style="padding:0 1rem">
+      <input class="search-input" id="transfer-search" type="search"
+        placeholder="Search person by name…" autocomplete="off" autocorrect="off" spellcheck="false"
+        style="width:100%;margin-bottom:.5rem">
+      <div id="transfer-results"></div>
+      <button class="btn scan-action-btn" style="width:100%;margin-top:.75rem" id="transfer-cancel-btn">Cancel</button>
+    </div>`;
+
+  document.getElementById('transfer-cancel-btn')?.addEventListener('click', () => presentCheckinConfirm(qr, item, locationInfo));
+
+  let searchTimer;
+  const input = document.getElementById('transfer-search');
+  input?.addEventListener('input', () => {
+    clearTimeout(searchTimer);
+    const q = input.value.trim();
+    const results = document.getElementById('transfer-results');
+    if (!results) return;
+    if (q.length < 2) { results.innerHTML = ''; return; }
+    searchTimer = setTimeout(() => searchTransferPersons(q, item, qr), 300);
+  });
+  setTimeout(() => input?.focus(), 60);
+}
+
+async function searchTransferPersons(q, item, qr) {
+  const results = document.getElementById('transfer-results');
+  if (!results) return;
+  try {
+    const data = await get('/persons', { q });
+    const persons = data.persons || [];
+    if (!persons.length) {
+      results.innerHTML = '<div style="color:var(--text3);font-size:13px;padding:.5rem 0">No results</div>';
+      return;
+    }
+    results.innerHTML = persons.map((p, i) => `
+      <button data-idx="${i}" style="display:block;width:100%;padding:.5rem .25rem;
+        background:none;border:none;border-bottom:0.5px solid var(--border);
+        text-align:left;cursor:pointer;font-size:14px;color:var(--text)">${esc(p.display_name)}</button>
+    `).join('');
+    results.querySelectorAll('button[data-idx]').forEach(btn => {
+      btn.addEventListener('click', () => doPersonTransfer(item, qr, persons[+btn.dataset.idx]));
+    });
+  } catch {
+    results.innerHTML = '<div style="color:var(--danger);font-size:13px">Search failed</div>';
+  }
+}
+
+async function doPersonTransfer(item, qr, person) {
+  const overlay = document.getElementById('scan-result-overlay');
+  try {
+    const perms = _user?.permissions || [];
+    let result;
+    if (perms.includes('checkout_equipment')) {
+      result = await post('/person-checkout', { person_qr: person.qr_token, item_qrs: [qr], force: true });
+    } else {
+      const deptId = (_user?.dept_ids || [])[0];
+      result = await post('/sub-person-checkout', { dept_id: deptId, person_qr: person.qr_token, item_qrs: [qr], force: true });
+    }
+    if (result.results?.some(r => !r.success)) throw new Error(result.results.find(r => !r.success)?.error || 'Transfer failed');
+    scanFeedbackSuccess();
+    _toast(`Transferred ${item.name} to ${person.display_name}`);
+  } catch (e) {
+    scanFeedbackError();
+    _toast('Error: ' + e.message);
+  }
+  overlay.style.display = 'none';
+  resumeCamera();
+}
+
 // ── Submit checkout ───────────────────────────────────────────────────────────
 
 async function submitCheckout() {
@@ -711,28 +1216,42 @@ async function submitCheckout() {
 
   const item_qrs = items.map(i => i.qr);
   const perms    = _user?.permissions || [];
+  const label    = _deptLabel || undefined;
 
   try {
     let endpoint, body;
 
     if (entity.type === 'person') {
       endpoint = perms.includes('checkout_equipment') ? '/person-checkout' : '/sub-person-checkout';
-      body = { person_qr: entity.qr, item_qrs };
-      if (entity.type === 'person' && !perms.includes('checkout_equipment')) {
+      body = { person_qr: entity.qr, item_qrs, dept_label: label, force: true };
+      if (!perms.includes('checkout_equipment')) {
         body.dept_id = _user?.dept_ids?.[0];
       }
     } else if (entity.type === 'dept') {
       endpoint = '/checkout';
-      body = { dept_id: entity.id, item_qrs };
-    } else if (entity.type === 'barrio') {
+      body = { dept_id: entity.id, item_qrs, dept_label: label, force: true };
+    } else if (entity.type === 'group') {
       endpoint = '/sub-checkout';
-      body = { dept_id: _user?.dept_ids?.[0] ?? null, barrio_id: entity.id, item_qrs };
-    } else if (entity.type === 'artist') {
-      endpoint = '/sub-checkout';
-      body = { dept_id: _user?.dept_ids?.[0] ?? null, artist_id: entity.id, item_qrs };
+      body = {
+        dept_id: _user?.dept_ids?.[0] ?? null,
+        group_id: entity.id,
+        item_qrs,
+        dept_label: label,
+        force: true,
+        apply_group_location: document.getElementById('confirm-apply-group-loc')?.checked ?? true,
+      };
+      if (_capturedLocation) {
+        body.latitude  = _capturedLocation.latitude;
+        body.longitude = _capturedLocation.longitude;
+      }
     }
 
     const result = await post(endpoint, body);
+    if (result.__offline) {
+      _toast('Saved offline — will sync');
+      resetLendingSession();
+      return;
+    }
     if (result.error) throw new Error(result.error);
 
     // Per-item results (person-checkout endpoints)
@@ -777,14 +1296,34 @@ async function submitCheckout() {
       }
     }
 
+    // Record group arrival if this session's confirm step showed the sub-form
+    if (entity.type === 'group' && document.getElementById('confirm-orientation')) {
+      const orient = document.getElementById('confirm-orientation')?.checked || false;
+      const arrItems = [];
+      document.querySelectorAll('.arrival-cons-input').forEach(inp => {
+        const qty = parseInt(inp.value || '0', 10);
+        if (qty > 0) arrItems.push({ type_id: +inp.dataset.typeId, quantity: qty });
+      });
+      try {
+        await post('/group-arrival', { group_id: entity.id, items: arrItems, orientation_done: orient });
+      } catch { /* non-fatal */ }
+    }
+
     _toast('Lent successfully');
-    _session = null;
-    _updateBanner();
-    _onTabSwitch('home');
+    resetLendingSession();
   } catch (e) {
     _toast('Error: ' + e.message);
     if (btn) { btn.disabled = false; btn.textContent = 'Confirm lend'; }
   }
+}
+
+function resetLendingSession() {
+  _session = null;
+  _groupDetail = null;
+  _capturedLocation = null;
+  _deptLabel = '';
+  _updateBanner();
+  _onTabSwitch('home');
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────

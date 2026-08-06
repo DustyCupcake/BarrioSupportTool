@@ -27,7 +27,7 @@ function handle_get_dept_orders(): void {
                 COALESCE(deo.quantity_ordered, 0) AS quantity_ordered,
                 deo.submitted_at,
                 (SELECT COUNT(*) FROM equipment_items ei
-                 WHERE ei.equipment_type_id = et.id AND ei.current_dept_id = ?) AS qty_in_pool
+                 WHERE ei.equipment_type_id = et.id AND ei.owning_dept_id = ?) AS qty_in_pool
          FROM equipment_types et
          LEFT JOIN dept_equipment_orders deo
            ON deo.equipment_type_id = et.id AND deo.dept_id = ?
@@ -142,7 +142,7 @@ function handle_barrio_orders_aggregate(): void {
 
     $rows = db()->query(
         'SELECT equipment_type_id, SUM(quantity_ordered) AS total
-         FROM barrio_equipment_orders GROUP BY equipment_type_id'
+         FROM group_equipment_orders GROUP BY equipment_type_id'
     )->fetchAll();
 
     foreach ($rows as &$r) $r['total'] = (int)$r['total'];

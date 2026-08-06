@@ -7,8 +7,7 @@ const ROLE_PERMISSIONS = [
         'validate_vouchers','checkout_equipment','checkin_equipment',
         'sub_checkout','sub_checkin',
         'view_inventory','view_dept_inventory',
-        'view_barrios','view_artists',
-        'manage_barrios','manage_artists',
+        'view_groups','manage_groups',
         'manage_equipment','manage_consumables',
         'manage_users','manage_departments',
         'create_invites','manage_orders','submit_orders',
@@ -18,7 +17,7 @@ const ROLE_PERMISSIONS = [
     ],
     'production_staff' => [
         'checkout_equipment','checkin_equipment',
-        'view_inventory','view_barrios','view_artists',
+        'view_inventory','view_groups',
         'validate_vouchers',
         'request_fills',
         'update_item_location',
@@ -42,11 +41,11 @@ const ROLE_PERMISSIONS = [
     'validator' => [],
 ];
 
-// ─── Per-dept permissions added based on sub_entity ───────────────────────────
-const SUB_ENTITY_PERMISSIONS = [
-    'barrio' => ['view_barrios','manage_barrios','sub_checkout','sub_checkin','label_equipment'],
-    'artist' => ['view_artists','manage_artists','sub_checkout','sub_checkin','label_equipment'],
-];
+// ─── Extra permissions for members of a group-managing department ────────────
+// Departments used to come in two hardcoded sub_entity flavors (barrio/artist)
+// with separate permission bundles; barrios and artists are now both just
+// "groups", so any department that manages groups grants the same bundle.
+const GROUP_DEPT_PERMISSIONS = ['view_groups','manage_groups','sub_checkout','sub_checkin','label_equipment'];
 
 function start_session(): void {
     if (session_status() === PHP_SESSION_NONE) {
@@ -84,14 +83,14 @@ function _build_auth_return(): array {
         'role'               => $_SESSION['role'] ?? null,
         'dept_ids'           => $_SESSION['dept_ids'] ?? [],
         'dept_roles'         => $_SESSION['dept_roles'] ?? [],
-        'dept_sub_entities'  => $_SESSION['dept_sub_entities'] ?? (object)[],
+        'dept_manages_groups' => $_SESSION['dept_manages_groups'] ?? (object)[],
         'permissions'        => $_SESSION['permissions'] ?? [],
         'language'           => $_SESSION['language'] ?? 'en',
         'is_shift'           => $_SESSION['is_shift'] ?? false,
         'is_person'          => $_SESSION['is_person'] ?? false,
         'shift_id'           => $_SESSION['shift_id'] ?? null,
         'shift_name'         => $_SESSION['shift_name'] ?? null,
-        'barrio_id'          => $_SESSION['barrio_id'] ?? null,
+        'group_id'           => $_SESSION['group_id'] ?? null,
         'qr_token'           => $_SESSION['qr_token'] ?? null,
     ];
     $_SESSION['_auth_cache'] = $data;
@@ -124,14 +123,6 @@ function require_permission(string $perm): array {
 
 // ─── Convenience gate functions ───────────────────────────────────────────────
 
-function require_production_admin(): array {
-    return require_permission('manage_departments');
-}
-
-function require_any_staff(): array {
-    return require_auth();  // any authenticated session (user or shift) is valid here
-}
-
 function require_dept_access(int $dept_id): array {
     $user = require_auth();
     if (in_array('view_inventory', $user['permissions'], true)) return $user; // production level
@@ -139,13 +130,9 @@ function require_dept_access(int $dept_id): array {
     json_error('Forbidden', 403);
 }
 
-// ─── Backward-compat aliases (keep existing route files working) ───────────────
-function require_admin(): array {
+// Gate for equipment-type/item catalog management (bulk create, type CRUD, QR sheets).
+function require_manage_users(): array {
     return require_permission('manage_users');
-}
-
-function require_staff_or_admin(): array {
-    return require_auth();
 }
 
 // ─── Permission computation (called at login) ─────────────────────────────────
@@ -161,19 +148,17 @@ function compute_permissions(string $base_role, array $dept_memberships, array $
 
     $perms = ROLE_PERMISSIONS[$effective_role] ?? [];
 
-    // For dept-level roles, add permissions based on sub_entity of their departments
+    // For dept-level roles, add group-lending permissions if their department manages groups
     if (in_array($effective_role, ['dept_admin', 'dept_staff'], true)) {
         foreach ($dept_memberships as $m) {
             $dept_role = $m['role'];    // dept_admin or dept_staff
-            $sub_entity = $m['sub_entity'] ?? 'none';
-            $extra = SUB_ENTITY_PERMISSIONS[$sub_entity] ?? [];
 
-            // dept_staff in sub-lending depts get sub_checkout/sub_checkin/label_equipment
-            foreach ($extra as $p) {
-                $perms[] = $p;
+            if (!empty($m['manages_groups'])) {
+                foreach (GROUP_DEPT_PERMISSIONS as $p) {
+                    $perms[] = $p;
+                }
             }
 
-            // dept_admin also gets manage_* for their sub-entity
             if ($dept_role === 'dept_admin') {
                 $perms[] = 'create_invites';
             }

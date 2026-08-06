@@ -6,15 +6,16 @@ function handle_list_departments(): void {
     require_auth();
 
     $rows = db()->query(
-        'SELECT id, name, slug, sub_entity, sort_order
+        'SELECT id, name, slug, manages_groups, sort_order
          FROM departments
          WHERE is_active = 1
          ORDER BY sort_order, name'
     )->fetchAll();
 
     foreach ($rows as &$r) {
-        $r['id']         = (int)$r['id'];
-        $r['sort_order'] = (int)$r['sort_order'];
+        $r['id']             = (int)$r['id'];
+        $r['sort_order']     = (int)$r['sort_order'];
+        $r['manages_groups'] = (bool)$r['manages_groups'];
     }
     unset($r);
 
@@ -30,7 +31,7 @@ function handle_get_department(): void {
     require_dept_access($dept_id);
 
     $stmt = db()->prepare(
-        'SELECT d.id, d.name, d.slug, d.sub_entity, d.sort_order
+        'SELECT d.id, d.name, d.slug, d.manages_groups, d.sort_order
          FROM departments d WHERE d.id = ? AND d.is_active = 1'
     );
     $stmt->execute([$dept_id]);
@@ -38,35 +39,30 @@ function handle_get_department(): void {
 
     if (!$dept) json_error('Department not found', 404);
 
-    $dept['id']         = (int)$dept['id'];
-    $dept['sort_order'] = (int)$dept['sort_order'];
+    $dept['id']             = (int)$dept['id'];
+    $dept['sort_order']     = (int)$dept['sort_order'];
+    $dept['manages_groups'] = (bool)$dept['manages_groups'];
 
-    // Sub-entities
-    $sub_entities = [];
-    if ($dept['sub_entity'] === 'barrio') {
+    // Groups belonging to this department
+    $groups = [];
+    if ($dept['manages_groups']) {
         $stmt = db()->prepare(
-            'SELECT id, name, arrival_status FROM barrios WHERE dept_id = ? ORDER BY sort_order, name'
+            'SELECT g.id, g.name, g.arrival_status, u.display_name AS assigned_staff_name
+             FROM groups g
+             LEFT JOIN users u ON u.id = g.assigned_staff_id
+             WHERE g.dept_id = ? ORDER BY g.sort_order, g.name'
         );
         $stmt->execute([$dept_id]);
-        $sub_entities = $stmt->fetchAll();
-    } elseif ($dept['sub_entity'] === 'artist') {
-        $stmt = db()->prepare(
-            'SELECT a.id, a.name, u.display_name AS assigned_staff_name
-             FROM artists a
-             LEFT JOIN users u ON u.id = a.assigned_staff_id
-             WHERE a.dept_id = ? ORDER BY a.sort_order, a.name'
-        );
-        $stmt->execute([$dept_id]);
-        $sub_entities = $stmt->fetchAll();
+        $groups = $stmt->fetchAll();
     }
 
-    foreach ($sub_entities as &$s) $s['id'] = (int)$s['id'];
+    foreach ($groups as &$s) $s['id'] = (int)$s['id'];
     unset($s);
 
     // Pool size: items in dept but not sub-lent
     $stmt = db()->prepare(
         'SELECT COUNT(*) FROM equipment_items
-         WHERE current_dept_id = ? AND current_barrio_id IS NULL AND current_artist_id IS NULL'
+         WHERE owning_dept_id = ? AND (holder_type IS NULL OR holder_type != \'group\')'
     );
     $stmt->execute([$dept_id]);
     $pool_size = (int)$stmt->fetchColumn();
@@ -83,7 +79,8 @@ function handle_get_department(): void {
     $orders = $stmt->fetchAll();
 
     json_ok(array_merge($dept, [
-        'sub_entities' => $sub_entities,
+        'sub_entities' => $groups,
+        'groups'       => $groups,
         'pool_size'    => $pool_size,
         'orders'       => $orders,
     ]));
