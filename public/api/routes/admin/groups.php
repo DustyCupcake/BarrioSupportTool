@@ -26,6 +26,7 @@ function handle_list(): void {
         "SELECT g.id, g.dept_id, d.name AS dept_name, g.name, g.sort_order,
                 g.assigned_staff_id, u.display_name AS assigned_staff_name,
                 g.enable_arrival_tracking, g.enable_consumable_entitlements,
+                g.enable_self_service_shift,
                 g.arrival_status, g.created_at
          FROM groups g
          LEFT JOIN departments d ON d.id = g.dept_id
@@ -42,10 +43,58 @@ function handle_list(): void {
         $r['assigned_staff_id']              = $r['assigned_staff_id'] !== null ? (int)$r['assigned_staff_id'] : null;
         $r['enable_arrival_tracking']        = (bool)$r['enable_arrival_tracking'];
         $r['enable_consumable_entitlements'] = (bool)$r['enable_consumable_entitlements'];
+        $r['enable_self_service_shift']      = (bool)$r['enable_self_service_shift'];
     }
     unset($r);
 
     json_ok(['groups' => $rows, 'barrios' => $rows, 'artists' => $rows]);
+}
+
+// Ensures a group's standing self-service shift (is_standing=1, group_id set,
+// wide-open active window, request_fills-only permission set) exists and is
+// active, or deactivates it — instead of the old bespoke handle_barrio_identify()
+// code path. The shift's single token is the group's own qr_code, so scanning
+// the group's QR is an ordinary shift-token login (see handle_shift_login()).
+function _sync_group_standing_shift(int $group_id, ?string $group_qr, string $group_name, bool $enable, ?int $actor_id): void {
+    $pdo = db();
+
+    $stmt = $pdo->prepare('SELECT id FROM shifts WHERE group_id = ? AND is_standing = 1 LIMIT 1');
+    $stmt->execute([$group_id]);
+    $shift_id = $stmt->fetchColumn();
+
+    if (!$enable) {
+        if ($shift_id) {
+            $pdo->prepare('UPDATE shifts SET active_until = NOW() WHERE id = ?')->execute([(int)$shift_id]);
+        }
+        return;
+    }
+
+    // Legacy groups migrated before qr_code was mandatory may not have one yet
+    // (see the backfill in admin/group_qr.php) — generate one now so the
+    // standing shift always has a real token to key off.
+    if (!$group_qr) {
+        $group_qr = bin2hex(random_bytes(12));
+        $pdo->prepare('UPDATE groups SET qr_code = ? WHERE id = ?')->execute([$group_qr, $group_id]);
+    }
+
+    if ($shift_id) {
+        $pdo->prepare("UPDATE shifts SET active_until = '2099-12-31 23:59:59', name = ? WHERE id = ?")
+            ->execute([$group_name . ' — Self Service', (int)$shift_id]);
+        $shift_id = (int)$shift_id;
+    } else {
+        $pdo->prepare(
+            "INSERT INTO shifts (name, dept_id, group_id, is_standing, permissions, active_from, active_until, created_by)
+             VALUES (?, NULL, ?, 1, ?, '2000-01-01 00:00:00', '2099-12-31 23:59:59', ?)"
+        )->execute([$group_name . ' — Self Service', $group_id, json_encode(['request_fills']), $actor_id]);
+        $shift_id = (int)$pdo->lastInsertId();
+    }
+
+    $tok_stmt = $pdo->prepare('SELECT id FROM shift_tokens WHERE shift_id = ? AND token = ?');
+    $tok_stmt->execute([$shift_id, $group_qr]);
+    if (!$tok_stmt->fetch()) {
+        $pdo->prepare('INSERT INTO shift_tokens (shift_id, token, label) VALUES (?, ?, ?)')
+            ->execute([$shift_id, $group_qr, 'Group QR']);
+    }
 }
 
 function handle_create(): void {
@@ -60,6 +109,7 @@ function handle_create(): void {
     $assigned_staff_id              = isset($b['assigned_staff_id']) ? (int)$b['assigned_staff_id'] : null;
     $enable_arrival_tracking        = !empty($b['enable_arrival_tracking']);
     $enable_consumable_entitlements = !empty($b['enable_consumable_entitlements']);
+    $enable_self_service_shift      = !empty($b['enable_self_service_shift']);
 
     if ($name === '') json_error('name required');
 
@@ -85,17 +135,23 @@ function handle_create(): void {
     try {
         $stmt = db()->prepare(
             'INSERT INTO groups (name, qr_code, dept_id, sort_order, assigned_staff_id,
-                                  enable_arrival_tracking, enable_consumable_entitlements)
-             VALUES (?, ?, ?, ?, ?, ?, ?)'
+                                  enable_arrival_tracking, enable_consumable_entitlements,
+                                  enable_self_service_shift)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)'
         );
         $stmt->execute([
             $name, $qr_code, $dept_id, $sort_order, $assigned_staff_id,
             $enable_arrival_tracking ? 1 : 0, $enable_consumable_entitlements ? 1 : 0,
+            $enable_self_service_shift ? 1 : 0,
         ]);
         $id = (int)db()->lastInsertId();
     } catch (PDOException $e) {
         if (str_contains($e->getMessage(), 'Duplicate')) json_error('Name already exists in this department', 409);
         throw $e;
+    }
+
+    if ($enable_self_service_shift) {
+        _sync_group_standing_shift($id, $qr_code, $name, true, $user['id']);
     }
 
     json_ok(['id' => $id, 'name' => $name, 'qr_code' => $qr_code, 'sort_order' => $sort_order], 201);
@@ -110,7 +166,7 @@ function handle_update(): void {
     $id = (int)($b['id'] ?? $_GET['id'] ?? 0);
     if (!$id) json_error('id required');
 
-    $group_stmt = db()->prepare('SELECT dept_id FROM groups WHERE id = ?');
+    $group_stmt = db()->prepare('SELECT dept_id, name, qr_code FROM groups WHERE id = ?');
     $group_stmt->execute([$id]);
     $group = $group_stmt->fetch();
     if (!$group) json_error('Group not found', 404);
@@ -146,6 +202,9 @@ function handle_update(): void {
         if (!in_array($b['arrival_status'], $valid_statuses, true)) json_error('Invalid arrival_status');
         $sets[] = 'arrival_status = ?'; $params[] = $b['arrival_status'];
     }
+    if (array_key_exists('enable_self_service_shift', $b)) {
+        $sets[] = 'enable_self_service_shift = ?'; $params[] = !empty($b['enable_self_service_shift']) ? 1 : 0;
+    }
 
     if (empty($sets)) json_error('Nothing to update');
 
@@ -156,6 +215,12 @@ function handle_update(): void {
         if (str_contains($e->getMessage(), 'Duplicate')) json_error('Name already exists in this department', 409);
         throw $e;
     }
+
+    if (array_key_exists('enable_self_service_shift', $b)) {
+        $new_name = isset($b['name']) && trim($b['name']) !== '' ? trim($b['name']) : $group['name'];
+        _sync_group_standing_shift($id, $group['qr_code'], $new_name, !empty($b['enable_self_service_shift']), $user['id']);
+    }
+
     json_ok(['success' => true]);
 }
 

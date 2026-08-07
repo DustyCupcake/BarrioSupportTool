@@ -55,7 +55,13 @@ function handle_login(): void {
     $perm_stmt->execute([$user['id']]);
     $perm_overrides = $perm_stmt->fetchAll();
 
-    $permissions = compute_permissions($user['role'], $memberships, $perm_overrides);
+    // Load group_roles memberships (per-group access independent of department staff status)
+    $group_stmt = db()->prepare('SELECT group_id, role FROM group_roles WHERE user_id = ?');
+    $group_stmt->execute([$user['id']]);
+    $group_memberships = $group_stmt->fetchAll();
+    $group_ids          = array_map('intval', array_column($group_memberships, 'group_id'));
+
+    $permissions = compute_permissions($user['role'], $memberships, $perm_overrides, $group_memberships);
 
     $qr_token = ensure_user_qr_token((int)$user['id']);
     $csrf     = bin2hex(random_bytes(32));
@@ -67,6 +73,7 @@ function handle_login(): void {
         'dept_ids'            => array_map('intval', $dept_ids),
         'dept_roles'          => $dept_roles,
         'dept_manages_groups' => $dept_manages_groups,
+        'group_ids'           => $group_ids,
         'permissions'         => $permissions,
         'language'            => $user['language'] ?? 'en',
         'is_shift'            => false,
@@ -84,6 +91,7 @@ function handle_login(): void {
         'dept_ids'            => $_SESSION['dept_ids'],
         'dept_roles'          => $_SESSION['dept_roles'],
         'dept_manages_groups' => $dept_manages_groups,
+        'group_ids'           => $group_ids,
         'permissions'         => $permissions,
         'language'            => $_SESSION['language'],
         'is_shift'            => false,
@@ -264,6 +272,11 @@ function handle_shift_info(): void {
     ]);
 }
 
+// Handles both admin-issued volunteer shifts and a group's standing
+// self-service shift (is_standing=1, whose single token is the group's own
+// qr_code — see _sync_group_standing_shift() in admin/groups.php). Standing
+// shifts skip the volunteer_name prompt entirely: anyone who can see the
+// group's QR gets in, same as the old bespoke handle_barrio_identify() did.
 function handle_shift_login(): void {
     require_method('POST');
     start_session();
@@ -272,22 +285,26 @@ function handle_shift_login(): void {
     $token          = trim($b['token'] ?? '');
     $volunteer_name = trim($b['volunteer_name'] ?? '');
 
-    if ($token === '' || $volunteer_name === '') {
-        json_error('token and volunteer_name required', 400);
-    }
+    if ($token === '') json_error('token required', 400);
 
     $stmt = db()->prepare(
         'SELECT st.id, st.shift_id,
-                s.name AS shift_name, s.permissions, s.dept_id, s.group_id,
-                s.active_from, s.active_until
+                s.name AS shift_name, s.permissions, s.dept_id, s.group_id, s.is_standing,
+                s.active_from, s.active_until, g.name AS group_name
          FROM shift_tokens st
          JOIN shifts s ON s.id = st.shift_id
+         LEFT JOIN groups g ON g.id = s.group_id
          WHERE st.token = ?'
     );
     $stmt->execute([$token]);
     $tok = $stmt->fetch();
 
     if (!$tok) json_error('Invalid shift code', 401);
+
+    $is_standing = (bool)$tok['is_standing'];
+    if (!$is_standing && $volunteer_name === '') {
+        json_error('token and volunteer_name required', 400);
+    }
 
     $now = time();
     if (strtotime($tok['active_from']) > $now) json_error('This shift has not started yet', 403);
@@ -299,13 +316,16 @@ function handle_shift_login(): void {
     $perms = json_decode($tok['permissions'], true) ?: [];
     $csrf  = bin2hex(random_bytes(32));
 
-    $group_id = $tok['group_id'] ? (int)$tok['group_id'] : null;
+    $group_id   = $tok['group_id'] ? (int)$tok['group_id'] : null;
+    $display_name = $is_standing
+        ? ($tok['group_name'] ?? $tok['shift_name'])
+        : $volunteer_name . ' (' . $tok['shift_name'] . ')';
 
     session_regenerate_id(true);
     $_SESSION = [
         'user_id'      => null,
         'username'     => null,
-        'display_name' => $volunteer_name . ' (' . $tok['shift_name'] . ')',
+        'display_name' => $display_name,
         'role'         => null,
         'dept_ids'     => $tok['dept_id'] ? [(int)$tok['dept_id']] : [],
         'dept_roles'   => [],
@@ -319,61 +339,16 @@ function handle_shift_login(): void {
     ];
 
     json_ok([
-        'display_name' => $_SESSION['display_name'],
+        'success'      => true,
+        'display_name' => $display_name,
         'permissions'  => $perms,
         'is_shift'     => true,
         'shift_name'   => $tok['shift_name'],
         'group_id'     => $group_id,
         'barrio_id'    => $group_id,
+        'group_name'   => $tok['group_name'],
+        'barrio_name'  => $tok['group_name'],
         'csrf_token'   => $csrf,
-    ]);
-}
-
-// ─── Group self-identify session ──────────────────────────────────────────────
-// Lets anyone who can see a group's own QR badge get a lightweight session
-// scoped to that group (request_fills only), so they can request water fills
-// from the public cube page without a full staff login or an admin-issued
-// shift token.
-function handle_barrio_identify(): void {
-    require_method('POST');
-    start_session();
-
-    $b  = body();
-    $qr = trim($b['barrio_qr'] ?? $b['group_qr'] ?? '');
-    if ($qr === '') json_error('barrio_qr required', 400);
-
-    $stmt = db()->prepare('SELECT id, name FROM groups WHERE qr_code = ?');
-    $stmt->execute([$qr]);
-    $group = $stmt->fetch();
-
-    if (!$group) json_error('Group QR not recognised', 404);
-
-    $csrf = bin2hex(random_bytes(32));
-    session_regenerate_id(true);
-    $_SESSION = [
-        'user_id'      => null,
-        'username'     => null,
-        'display_name' => $group['name'],
-        'role'         => null,
-        'dept_ids'     => [],
-        'dept_roles'   => [],
-        'permissions'  => ['request_fills'],
-        'language'     => 'en',
-        'is_shift'     => true,
-        'shift_id'     => null,
-        'shift_name'   => null,
-        'group_id'     => (int)$group['id'],
-        'csrf_token'   => $csrf,
-    ];
-
-    json_ok([
-        'success'     => true,
-        'group_id'    => (int)$group['id'],
-        'group_name'  => $group['name'],
-        'barrio_id'   => (int)$group['id'],
-        'barrio_name' => $group['name'],
-        'permissions' => ['request_fills'],
-        'csrf_token'  => $csrf,
     ]);
 }
 
@@ -490,6 +465,10 @@ function handle_person_claim(): void {
         json_error('Failed to claim badge: ' . $e->getMessage(), 500);
     }
 
+    $perm_stmt = db()->prepare('SELECT permission, granted FROM user_permissions WHERE user_id = ?');
+    $perm_stmt->execute([$user_id]);
+    $permissions = compute_permissions('person', [], $perm_stmt->fetchAll());
+
     $csrf = bin2hex(random_bytes(32));
     session_regenerate_id(true);
     $_SESSION = [
@@ -500,7 +479,7 @@ function handle_person_claim(): void {
         'dept_ids'          => [],
         'dept_roles'        => [],
         'dept_manages_groups' => (object)[],
-        'permissions'       => ['checkin_equipment', 'person_borrow'],
+        'permissions'       => $permissions,
         'language'          => 'en',
         'is_shift'          => false,
         'is_person'         => true,
@@ -510,7 +489,7 @@ function handle_person_claim(): void {
 
     json_ok([
         'display_name' => $display_name,
-        'permissions'  => ['checkin_equipment', 'person_borrow'],
+        'permissions'  => $permissions,
         'is_person'    => true,
         'qr_token'     => $token,
         'csrf_token'   => $csrf,
@@ -547,6 +526,10 @@ function handle_person_login(): void {
         json_error('Name does not match', 401);
     }
 
+    $perm_stmt = db()->prepare('SELECT permission, granted FROM user_permissions WHERE user_id = ?');
+    $perm_stmt->execute([(int)$tok['user_id']]);
+    $permissions = compute_permissions('person', [], $perm_stmt->fetchAll());
+
     $csrf = bin2hex(random_bytes(32));
     session_regenerate_id(true);
     $_SESSION = [
@@ -557,7 +540,7 @@ function handle_person_login(): void {
         'dept_ids'          => [],
         'dept_roles'        => [],
         'dept_manages_groups' => (object)[],
-        'permissions'       => ['checkin_equipment', 'person_borrow'],
+        'permissions'       => $permissions,
         'language'          => 'en',
         'is_shift'          => false,
         'is_person'         => true,
@@ -567,7 +550,7 @@ function handle_person_login(): void {
 
     json_ok([
         'display_name' => $tok['display_name'],
-        'permissions'  => ['checkin_equipment', 'person_borrow'],
+        'permissions'  => $permissions,
         'is_person'    => true,
         'qr_token'     => $token,
         'csrf_token'   => $csrf,

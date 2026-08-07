@@ -139,6 +139,10 @@ function render(container) {
         <input type="checkbox" id="group-ent-track" style="width:auto;margin:0">
         <label for="group-ent-track" style="margin:0">Track consumable entitlements</label>
       </div>
+      <div class="field" style="display:flex;align-items:center;gap:8px">
+        <input type="checkbox" id="group-self-service" style="width:auto;margin:0">
+        <label for="group-self-service" style="margin:0">Allow self-service sign-in by scanning the group's own QR</label>
+      </div>
       <div class="field" id="group-status-field" style="display:none">
         <label for="group-status">Arrival status</label>
         <select id="group-status">
@@ -271,6 +275,7 @@ function openAdd() {
   document.getElementById('group-staff').value = '';
   document.getElementById('group-arrival-track').checked = false;
   document.getElementById('group-ent-track').checked     = false;
+  document.getElementById('group-self-service').checked  = false;
   document.getElementById('group-status-field').style.display = 'none';
   document.getElementById('group-dept-field').innerHTML = deptSelectHtml();
   document.getElementById('group-form').style.display = '';
@@ -288,6 +293,7 @@ function openEdit(id) {
   document.getElementById('group-staff').value = g.assigned_staff_name ?? '';
   document.getElementById('group-arrival-track').checked = !!g.enable_arrival_tracking;
   document.getElementById('group-ent-track').checked     = !!g.enable_consumable_entitlements;
+  document.getElementById('group-self-service').checked  = !!g.enable_self_service_shift;
   document.getElementById('group-status').value = g.arrival_status || 'expected';
   document.getElementById('group-status-field').style.display = g.enable_arrival_tracking ? '' : 'none';
   document.getElementById('group-dept-field').innerHTML = deptSelectHtml(g.dept_id);
@@ -311,6 +317,7 @@ async function save() {
   const staffName      = document.getElementById('group-staff').value.trim();
   const enableArrival  = document.getElementById('group-arrival-track').checked;
   const enableEnt      = document.getElementById('group-ent-track').checked;
+  const enableSelfSvc  = document.getElementById('group-self-service').checked;
   const dept_id        = _isFullAdmin
     ? (document.getElementById('group-dept')?.value ? +document.getElementById('group-dept').value : null)
     : _myDeptId;
@@ -321,6 +328,7 @@ async function save() {
     name, sort_order: sort, dept_id,
     enable_arrival_tracking: enableArrival,
     enable_consumable_entitlements: enableEnt,
+    enable_self_service_shift: enableSelfSvc,
   };
   if (staffName) body.assigned_staff_username = staffName;
 

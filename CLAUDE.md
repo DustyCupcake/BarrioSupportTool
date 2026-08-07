@@ -109,7 +109,7 @@ RewriteRule ^api/(.*)$ api/index.php?path=$1 [QSA,L]
 - `user_dept_roles` memberships + dept `manages_groups` flag → additional perms (`view_groups`, `manage_groups`, `sub_checkout`, `sub_checkin`, `label_equipment`)
 - `user_permissions` overrides (granted/denied) applied last
 
-A `group_roles` table (per-group membership, mirroring `user_dept_roles`) exists in the schema as groundwork but is not yet wired into permission computation — group-scoped access currently flows only through the owning department's `manages_groups` membership.
+A `group_roles` table (per-group membership, mirroring `user_dept_roles`) lets a user get access to one specific group without being department staff. It's wired into `compute_permissions()` (`GROUP_ROLE_PERMISSIONS` in `auth.php`), but currently only grants `view_groups` — the permission model has no per-group scoping for mutating operations (sub_checkout/sub_checkin/etc. are still dept-scoped only, via `dept_ids`), so broader group-scoped write access is a deliberate follow-up, not built yet.
 
 **Base roles and default permissions:**
 - `production_admin` — everything
@@ -206,6 +206,9 @@ mysql -u user -p db < migrate_groups_holder_model.sql   # merges barrios+artists
                                                           # transactions with holder_type/holder_id. NOT staged for
                                                           # zero-downtime — take a full backup first, see the file's
                                                           # header comment.
+mysql -u user -p db < migrate_phase3_identity.sql        # adds groups.enable_self_service_shift; provisions standing
+                                                          # shifts for existing groups so barrio self-identify keeps
+                                                          # working. Depends on migrate_groups_holder_model.sql.
 ```
 
 ### Adding an Endpoint
