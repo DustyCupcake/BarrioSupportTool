@@ -49,7 +49,9 @@ CREATE TABLE IF NOT EXISTS departments (
 -- group is any team/camp/collective that a department lends equipment to.
 -- enable_arrival_tracking / enable_consumable_entitlements are per-group
 -- capability flags rather than a hardcoded type split — a barrio-like group
--- sets both, an artist-like group sets neither.
+-- sets both, an artist-like group sets neither. enable_self_service_shift
+-- opts a group into a standing shift (see shifts.is_standing below) so
+-- scanning the group's QR logs anyone in via the normal shift-token flow.
 CREATE TABLE IF NOT EXISTS groups (
     id                              INT UNSIGNED  NOT NULL AUTO_INCREMENT,
     name                            VARCHAR(128)  NOT NULL,
@@ -58,6 +60,7 @@ CREATE TABLE IF NOT EXISTS groups (
     assigned_staff_id               INT UNSIGNED  NULL,
     enable_arrival_tracking         TINYINT(1)    NOT NULL DEFAULT 0,
     enable_consumable_entitlements  TINYINT(1)    NOT NULL DEFAULT 0,
+    enable_self_service_shift       TINYINT(1)    NOT NULL DEFAULT 0,
     sort_order                      SMALLINT UNSIGNED NOT NULL DEFAULT 0,
     arrival_status                  ENUM('expected','on-site','departed') NOT NULL DEFAULT 'expected',
     arrived_at                      DATETIME      NULL,
@@ -82,9 +85,11 @@ CREATE TABLE IF NOT EXISTS groups (
 
 -- ─── Group roles ──────────────────────────────────────────────────────────────
 -- Per-group membership/role, mirroring user_dept_roles but scoped to a group
--- instead of a department. Schema groundwork for group-scoped permissions;
--- not yet wired into compute_permissions() — see Phase 3 (session/identity
--- consolidation), which layers group-scoped shifts on top of this table.
+-- instead of a department. Wired into compute_permissions() (GROUP_ROLE_PERMISSIONS
+-- in public/api/auth.php) — currently grants view_groups only, since the
+-- permission model has no per-group scoping yet for mutating operations like
+-- sub_checkout (only per-department, via dept_ids). Broader group-scoped write
+-- permissions are a follow-up, not part of Phase 3.
 CREATE TABLE IF NOT EXISTS group_roles (
     user_id  INT UNSIGNED NOT NULL,
     group_id INT UNSIGNED NOT NULL,
@@ -95,9 +100,13 @@ CREATE TABLE IF NOT EXISTS group_roles (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 
 -- ─── Shifts ───────────────────────────────────────────────────────────────────
--- is_standing marks a group's self-service shift (see Phase 3): a group with
--- one active standing shift lets anyone scanning its QR log in via the normal
--- shift-token flow instead of a bespoke barrio-self-identify code path.
+-- is_standing marks a group's self-service shift: a group with
+-- enable_self_service_shift=1 gets exactly one standing shift (group_id set,
+-- wide-open active window, its single shift_tokens row equal to the group's
+-- own qr_code — see _sync_group_standing_shift() in
+-- public/api/routes/admin/groups.php), so scanning its QR is an ordinary
+-- shift-token login (handle_shift_login() in public/api/routes/auth.php) that
+-- replaced the old bespoke handle_barrio_identify() code path.
 CREATE TABLE IF NOT EXISTS shifts (
     id           INT UNSIGNED NOT NULL AUTO_INCREMENT,
     name         VARCHAR(128) NOT NULL,

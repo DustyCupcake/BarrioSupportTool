@@ -12,14 +12,26 @@ function handle_list_groups(): void {
     $user = require_auth();
 
     // Production level (view_inventory): see all groups (optionally filter by dept)
-    // Dept level with view_groups/manage_groups: see only their dept's groups
+    // Dept level with view_groups/manage_groups: see their dept's groups, plus any
+    // group they're a direct group_roles member of (e.g. a group lead who isn't
+    // department staff)
     if (has_permission('view_inventory')) {
         $where  = isset($_GET['dept_id']) ? 'WHERE g.dept_id = ?' : '';
         $params = isset($_GET['dept_id']) ? [(int)$_GET['dept_id']] : [];
     } elseif (has_permission('view_groups') || has_permission('manage_groups')) {
-        $placeholders = implode(',', array_fill(0, count($user['dept_ids']), '?'));
-        $where        = $placeholders ? "WHERE g.dept_id IN ($placeholders)" : 'WHERE 1=0';
-        $params       = $user['dept_ids'];
+        $dept_ids  = $user['dept_ids'] ?? [];
+        $group_ids = $user['group_ids'] ?? [];
+        $clauses   = [];
+        $params    = [];
+        if ($dept_ids) {
+            $clauses[] = 'g.dept_id IN (' . implode(',', array_fill(0, count($dept_ids), '?')) . ')';
+            $params    = array_merge($params, $dept_ids);
+        }
+        if ($group_ids) {
+            $clauses[] = 'g.id IN (' . implode(',', array_fill(0, count($group_ids), '?')) . ')';
+            $params    = array_merge($params, $group_ids);
+        }
+        $where = $clauses ? 'WHERE ' . implode(' OR ', $clauses) : 'WHERE 1=0';
     } else {
         json_error('Forbidden', 403);
         return;

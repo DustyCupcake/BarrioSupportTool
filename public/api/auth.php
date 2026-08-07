@@ -47,6 +47,18 @@ const ROLE_PERMISSIONS = [
 // "groups", so any department that manages groups grants the same bundle.
 const GROUP_DEPT_PERMISSIONS = ['view_groups','manage_groups','sub_checkout','sub_checkin','label_equipment'];
 
+// ─── Extra permissions for group_roles members (per-group, not per-dept) ─────
+// Someone can be a group_roles member without any user_dept_roles membership
+// at all (e.g. a group's own point person who isn't department staff). This
+// only grants visibility, not dept-wide sub_checkout/sub_checkin — the
+// permission model has no per-group scoping for mutating operations yet, so
+// granting those here would give a group lead write access across their
+// entire owning department. That's real follow-up work, not done in Phase 3.
+const GROUP_ROLE_PERMISSIONS = [
+    'group_lead'   => ['view_groups'],
+    'group_member' => ['view_groups'],
+];
+
 function start_session(): void {
     if (session_status() === PHP_SESSION_NONE) {
         $lifetime = 3600 * 24 * 3;
@@ -84,6 +96,7 @@ function _build_auth_return(): array {
         'dept_ids'           => $_SESSION['dept_ids'] ?? [],
         'dept_roles'         => $_SESSION['dept_roles'] ?? [],
         'dept_manages_groups' => $_SESSION['dept_manages_groups'] ?? (object)[],
+        'group_ids'          => $_SESSION['group_ids'] ?? [],
         'permissions'        => $_SESSION['permissions'] ?? [],
         'language'           => $_SESSION['language'] ?? 'en',
         'is_shift'           => $_SESSION['is_shift'] ?? false,
@@ -137,7 +150,7 @@ function require_manage_users(): array {
 
 // ─── Permission computation (called at login) ─────────────────────────────────
 
-function compute_permissions(string $base_role, array $dept_memberships, array $perm_overrides): array {
+function compute_permissions(string $base_role, array $dept_memberships, array $perm_overrides, array $group_memberships = []): array {
     // Resolve legacy roles
     $effective_role = match($base_role) {
         'admin'     => 'production_admin',
@@ -162,6 +175,13 @@ function compute_permissions(string $base_role, array $dept_memberships, array $
             if ($dept_role === 'dept_admin') {
                 $perms[] = 'create_invites';
             }
+        }
+    }
+
+    // Layer group_roles-derived permissions on top, same pattern as dept roles above
+    foreach ($group_memberships as $m) {
+        foreach (GROUP_ROLE_PERMISSIONS[$m['role']] ?? [] as $p) {
+            $perms[] = $p;
         }
     }
 

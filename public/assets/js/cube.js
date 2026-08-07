@@ -343,11 +343,11 @@ async function identifyBarrio(barrioQr, cubeQr, prevData) {
   if (stat) stat.textContent = 'Checking…';
 
   try {
-    const res = await fetch('/api/auth/barrio-identify', {
+    const res = await fetch('/api/auth/shift-login', {
       method: 'POST',
       credentials: 'include',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ barrio_qr: barrioQr }),
+      body: JSON.stringify({ token: barrioQr }),
     });
     const data = await res.json();
 
