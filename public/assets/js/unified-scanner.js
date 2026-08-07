@@ -449,7 +449,7 @@ async function searchEntities(q) {
         matches.push({ type: 'group', id: b.id, name: b.name });
       });
     }
-    if (perms.includes('person_checkout') || perms.includes('sub_checkout')) {
+    if (perms.includes('checkout_equipment') || perms.includes('sub_checkout')) {
       const data = await get('/persons?q=' + encodeURIComponent(q));
       (data.persons || []).slice(0, 5).forEach(p => {
         matches.push({ type: 'person', id: p.id, name: p.display_name, qr: p.qr_token });
@@ -666,7 +666,7 @@ async function handlePersonBadgeScan(token) {
   }
 
   // ── Staff checkout flow: set person as checkout entity ────────────────────
-  if (perms.includes('checkout_equipment') || perms.includes('sub_checkout') || perms.includes('person_checkout')) {
+  if (perms.includes('checkout_equipment') || perms.includes('sub_checkout')) {
     const overlay = document.getElementById('scan-result-overlay');
     const inner   = document.getElementById('scan-result-inner');
     if (!overlay || !inner) return;

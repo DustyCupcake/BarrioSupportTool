@@ -55,7 +55,7 @@ export function renderScanResult(container, lookupData, perms, onAction) {
           }
         }
         if (status === 'available') {
-          if (borrowable && borrow_eligible && (has('person_borrow') || has('person_checkout'))) {
+          if (borrowable && borrow_eligible && has('person_borrow')) {
             actionsHtml += actionBtn('Borrow (check out to me)', 'borrow_self', lookupData, 'primary');
           }
           if (has('checkout_equipment') || has('sub_checkout')) {
@@ -66,7 +66,7 @@ export function renderScanResult(container, lookupData, perms, onAction) {
 
       // Actions for vouchers
       if (is_voucher) {
-        if (status === 'checked-out' && (has('validate_vouchers') || has('person_checkout'))) {
+        if (status === 'checked-out' && (has('validate_vouchers') || has('sub_checkout') || has('checkout_equipment'))) {
           actionsHtml += actionBtn('Activate voucher', 'activate', lookupData, 'primary');
         }
         if (status === 'activated' && has('validate_vouchers')) {
@@ -89,7 +89,7 @@ export function renderScanResult(container, lookupData, perms, onAction) {
           </div>
         </div>`;
 
-      if (has('checkout_equipment') || has('sub_checkout') || has('person_checkout') || has('sub_checkout')) {
+      if (has('checkout_equipment') || has('sub_checkout')) {
         actionsHtml += actionBtn('Lend to this person', 'entity_select', lookupData, 'primary');
       }
       break;

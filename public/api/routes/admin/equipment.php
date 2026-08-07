@@ -496,6 +496,10 @@ function handle_import_status_csv(): void {
 
             $row_changed = false;
             $current_group_id = $item['holder_type'] === 'group' ? (int)$item['holder_id'] : null;
+            // Tracks the holder_type this row leaves the item in as we go, so the
+            // status column below (processed after this block) can stay trigger-
+            // consistent instead of working from the stale pre-row value.
+            $holder_type_now = $item['holder_type'];
 
             if ($barrio_col !== false) {
                 $barrio_val = trim($row[$barrio_col] ?? '');
@@ -518,6 +522,7 @@ function handle_import_status_csv(): void {
                         )->execute([$item['id'], $item['owning_dept_id'], $barrio_id, $user['id'], $user['display_name'], $now, 'CSV import backfill']);
                         $checked_out++;
                         $row_changed = true;
+                        $holder_type_now = 'group';
                     }
                 } elseif ($current_group_id) {
                     $prev_barrio_id = $current_group_id;
@@ -531,8 +536,10 @@ function handle_import_status_csv(): void {
                              SET holder_type = "department", holder_id = owning_dept_id
                              WHERE id = ?'
                         )->execute([$item['id']]);
+                        $holder_type_now = 'department';
                     } else {
                         set_item_holder($pdo, (int)$item['id'], null, null, 'available');
+                        $holder_type_now = null;
                     }
                     $pdo->prepare(
                         'INSERT INTO transactions (type, item_id, dept_id, holder_type, holder_id, performed_by, user_name_cache, is_offline_entry, occurred_at, notes)
@@ -548,9 +555,28 @@ function handle_import_status_csv(): void {
                 if ($status_val !== '') {
                     if (!in_array($status_val, $allowed_statuses, true)) {
                         $errors[] = ['row' => $row_num, 'qr_code' => $qr, 'error' => "Invalid status \"$status_val\""];
+                    } elseif ($status_val === 'checked-out') {
+                        // Setting "checked-out" via the status column alone doesn't say who
+                        // holds it — only valid if the item already has a holder (from this
+                        // row's barrio column, or from before this import).
+                        if ($holder_type_now === null) {
+                            $errors[] = ['row' => $row_num, 'qr_code' => $qr,
+                                'error' => 'Cannot set status to checked-out without a holder — use the barrio column, or the item must already have one'];
+                        } else {
+                            $pdo->prepare('UPDATE equipment_items SET status = "checked-out" WHERE id = ?')
+                                ->execute([$item['id']]);
+                            $row_changed = true;
+                        }
                     } else {
-                        $pdo->prepare('UPDATE equipment_items SET status = ? WHERE id = ?')
-                            ->execute([$status_val, $item['id']]);
+                        // available / retired — the trigger requires holder_type to be NULL for
+                        // these statuses, so release any current holder along with the status change.
+                        if ($holder_type_now !== null) {
+                            set_item_holder($pdo, (int)$item['id'], null, null, $status_val);
+                            $holder_type_now = null;
+                        } else {
+                            $pdo->prepare('UPDATE equipment_items SET status = ? WHERE id = ?')
+                                ->execute([$status_val, $item['id']]);
+                        }
                         $row_changed = true;
                     }
                 }
