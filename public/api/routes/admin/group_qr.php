@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 function handle_group_qr(): void {
     require_method('GET');
-    require_manage_users();
+    require_permission('manage_groups');
 
     $id = (int)($_GET['id'] ?? 0);
     if (!$id) {

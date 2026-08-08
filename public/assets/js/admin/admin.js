@@ -5,7 +5,7 @@
 
 import { get, setCsrf }          from '../api.js?v=1.0.1';
 import { initGroups }            from './groups.js?v=1.0.0';
-import { initEquipment }         from './equipment.js?v=1.0.3';
+import { initEquipment }         from './equipment.js?v=1.0.5';
 import { initUsers }             from './users.js?v=1.1.0';
 import { initTeams }             from './teams.js?v=1.1.0';
 import { initShifts }            from './shifts.js?v=1.0.1';
@@ -26,7 +26,7 @@ let _perms     = [];
 // Sections and the permission required to see them (any match → show)
 const SECTION_PERMS = {
   groups:             ['manage_groups'],
-  equipment:          ['manage_equipment'],
+  equipment:          ['manage_equipment', 'sub_checkout'],
   users:              ['manage_users', 'manage_dept_users'],
   teams:              ['manage_departments'],
   shifts:             ['manage_shifts'],
@@ -123,7 +123,7 @@ function navigate(section) {
 
   switch (section) {
     case 'groups':             initGroups(content, toast, _user);       break;
-    case 'equipment':          initEquipment(content, toast);           break;
+    case 'equipment':          initEquipment(content, toast, _user);    break;
     case 'users':              initUsers(content, toast, _user);        break;
     case 'teams':              initTeams(content, toast);               break;
     case 'shifts':             initShifts(content, toast, _user);       break;

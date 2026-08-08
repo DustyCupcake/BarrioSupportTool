@@ -144,8 +144,12 @@ function require_dept_access(int $dept_id): array {
 }
 
 // Gate for equipment-type/item catalog management (bulk create, type CRUD, QR sheets).
-function require_manage_users(): array {
-    return require_permission('manage_users');
+// Was previously misnamed require_manage_users() and checked the wrong permission
+// (manage_users instead of manage_equipment) — invisible in practice because
+// production_admin always holds both, but it meant a manage_equipment-only grant
+// couldn't touch the catalog, and a manage_users-only grant could.
+function require_manage_equipment(): array {
+    return require_permission('manage_equipment');
 }
 
 // ─── Permission computation (called at login) ─────────────────────────────────

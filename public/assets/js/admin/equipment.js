@@ -6,12 +6,16 @@
 import { get, post, put, del } from '../api.js?v=1.0.1';
 
 let _toast;
-let _types     = [];
-let _items     = [];
-let _locations = [];
-let _activeTab = 'types';
-let _selected  = new Set(); // selected item ids for bulk actions
-let _csrf      = null;      // cached csrf token for multipart uploads
+let _types      = [];
+let _items      = [];
+let _locations  = [];
+let _depts      = [];
+let _deptUsers  = []; // own-department staff, for item-level "restrict to this person" picker
+let _activeTab  = 'types';
+let _selected   = new Set(); // selected item ids for bulk actions
+let _csrf       = null;      // cached csrf token for multipart uploads
+let _isFullAdmin = false;    // manage_equipment — full catalog access
+let _myDeptIds   = [];       // dept-admin's own department(s), scoped via sub_checkout
 
 async function getCsrf() {
   if (_csrf) return _csrf;
@@ -20,11 +24,19 @@ async function getCsrf() {
   return _csrf;
 }
 
-export async function initEquipment(container, toast) {
-  _toast = toast;
+export async function initEquipment(container, toast, user = null) {
+  _toast        = toast;
+  const perms   = user?.permissions || [];
+  _isFullAdmin  = perms.includes('manage_equipment');
+  _myDeptIds    = user?.dept_ids || [];
+
   renderShell(container);
-  await Promise.all([loadTypes(), loadLocations()]);
-  switchTab('types');
+
+  const loads = [loadTypes(), loadLocations(), loadDeptUsers()];
+  if (_isFullAdmin) loads.push(loadDepartments());
+  await Promise.all(loads);
+
+  switchTab(_isFullAdmin ? 'types' : 'items');
 }
 
 async function loadLocations() {
@@ -32,6 +44,23 @@ async function loadLocations() {
     const data = await get('/admin/storage-locations');
     _locations = data.locations || [];
   } catch { _locations = []; }
+}
+
+async function loadDepartments() {
+  try {
+    const data = await get('/admin/departments');
+    _depts = data.departments || [];
+  } catch { _depts = []; } // dept-scoped admins can't list all departments — restrictions become view-only for them
+}
+
+async function loadDeptUsers() {
+  try {
+    const data = await get('/admin/users');
+    // Full admins get every user in the system from this endpoint (not dept-scoped) —
+    // filter to active staff so the item-restriction picker isn't cluttered with
+    // person-badge holders. Dept-scoped callers already only see their own dept's staff.
+    _deptUsers = (data.users || []).filter(u => u.role !== 'person' && u.is_active);
+  } catch { _deptUsers = []; } // dept_staff (sub_checkout via a group-managing dept) lacks manage_dept_users — picker just stays empty
 }
 
 function renderShell(container) {
@@ -44,8 +73,9 @@ function renderShell(container) {
     </div>
 
     <div class="section-tabs">
-      <button class="section-tab active" data-etab="types" onclick="window._eq.tab('types')">Types</button>
-      <button class="section-tab" data-etab="items" onclick="window._eq.tab('items')">Items</button>
+      <button class="section-tab${_isFullAdmin ? ' active' : ''}" data-etab="types" onclick="window._eq.tab('types')"
+        ${_isFullAdmin ? '' : 'style="display:none"'}>Types</button>
+      <button class="section-tab${_isFullAdmin ? '' : ' active'}" data-etab="items" onclick="window._eq.tab('items')">Items</button>
     </div>
 
     <div id="eq-form-area"></div>
@@ -63,6 +93,8 @@ function renderShell(container) {
     addSpecField, removeSpecField, moveSpecField,
     uploadItemPhoto,
     openImportStatus, runImportStatus,
+    addBorrowRule, removeBorrowRule,
+    manageItemRules, addItemBorrowRule, removeItemBorrowRule,
     _useGps: () => {},
     _slugLabel(labelEl, keyId) {
       const keyEl = document.getElementById(keyId);
@@ -78,6 +110,7 @@ function renderShell(container) {
 }
 
 function switchTab(name) {
+  if (name === 'types' && !_isFullAdmin) name = 'items';
   _activeTab = name;
   _selected  = new Set();
   document.querySelectorAll('.section-tab[data-etab]').forEach(b => {
@@ -200,6 +233,21 @@ function showTypeForm(t) {
         Must scan any storage location QR when returning
       </label>
 
+      ${t?.id ? `
+      <div style="margin-top:1rem">
+        <div style="font-size:13px;font-weight:500;margin-bottom:.2rem;color:var(--text2)">Self-checkout restrictions</div>
+        <div style="font-size:11px;color:var(--text3);margin-bottom:.5rem">
+          Applies when "Borrowable" is on. With no departments listed, anyone with borrow permission can
+          self-checkout items of this type. Add one or more departments to restrict it to their staff.
+        </div>
+        <div id="et-borrow-rules"><span class="spinner" style="width:14px;height:14px"></span></div>
+        <div style="display:flex;gap:.5rem;margin-top:.5rem">
+          <select id="et-rule-dept" style="flex:1"><option value="">— Select department —</option></select>
+          <button class="btn sm" onclick="window._eq.addBorrowRule(${t.id})">+ Restrict</button>
+        </div>
+      </div>
+      ` : ''}
+
       <div style="margin-top:1rem">
         <div style="font-size:13px;font-weight:500;margin-bottom:.5rem;color:var(--text2)">Spec fields for this type</div>
         <div id="et-spec-fields">${_renderSpecFieldsList(t?.spec_fields ?? [])}</div>
@@ -251,6 +299,66 @@ function showTypeForm(t) {
     </div>
   `;
   document.getElementById('et-name').focus();
+  if (t?.id) loadBorrowRules(t.id);
+}
+
+async function loadBorrowRules(typeId) {
+  const listEl = document.getElementById('et-borrow-rules');
+  const selEl  = document.getElementById('et-rule-dept');
+  if (!listEl) return;
+  try {
+    const data  = await get('/admin/borrow-rules?type_id=' + typeId);
+    const rules = data.rules || [];
+    renderBorrowRulesList(typeId, rules);
+    if (selEl) {
+      const used = new Set(rules.map(r => r.allowed_dept_id));
+      selEl.innerHTML = '<option value="">— Select department —</option>' +
+        _depts.filter(d => !used.has(d.id))
+          .map(d => `<option value="${d.id}">${esc(d.name)}</option>`).join('');
+    }
+  } catch {
+    listEl.innerHTML = '<div style="font-size:12px;color:var(--text3)">Could not load restrictions</div>';
+    if (selEl) selEl.innerHTML = '<option value="">— No departments available —</option>';
+  }
+}
+
+function renderBorrowRulesList(typeId, rules) {
+  const listEl = document.getElementById('et-borrow-rules');
+  if (!listEl) return;
+  const deptRules = rules.filter(r => r.allowed_dept_id);
+  if (!deptRules.length) {
+    listEl.innerHTML = '<div style="font-size:12px;color:var(--text3)">No restrictions — open to anyone with borrow permission</div>';
+    return;
+  }
+  listEl.innerHTML = deptRules.map(r => `
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.35rem 0;font-size:13px">
+      <span>${esc(r.dept_name || 'Unknown department')}</span>
+      <button class="action-btn danger" onclick="window._eq.removeBorrowRule(${r.id}, ${typeId})">Remove</button>
+    </div>
+  `).join('');
+}
+
+async function addBorrowRule(typeId) {
+  const sel = document.getElementById('et-rule-dept');
+  const deptId = sel?.value;
+  if (!deptId) { _toast('Select a department first'); return; }
+  try {
+    await post('/admin/borrow-rules', { type_id: typeId, allowed_dept_id: +deptId });
+    await loadBorrowRules(typeId);
+    _toast('Restriction added');
+  } catch (e) {
+    _toast('Error: ' + e.message);
+  }
+}
+
+async function removeBorrowRule(ruleId, typeId) {
+  try {
+    await del('/admin/borrow-rules/' + ruleId);
+    await loadBorrowRules(typeId);
+    _toast('Restriction removed');
+  } catch (e) {
+    _toast('Error: ' + e.message);
+  }
 }
 
 async function saveType() {
@@ -339,9 +447,9 @@ async function renderItemsTable(filter_type_id = '') {
     `<option value="${t.id}" ${String(filter_type_id) === String(t.id) ? 'selected' : ''}>${esc(t.name)}</option>`
   ).join('');
 
-  const addBtn    = `<button class="btn primary sm" style="margin-bottom:1rem;margin-right:.5rem" onclick="window._eq.openAddItems()">+ Add items</button>`;
-  const exportBtn = `<button class="btn sm" style="margin-bottom:1rem;margin-right:.5rem" onclick="window._eq.exportQR('${filter_type_id}')">Export QR sheet</button>`;
-  const importBtn = `<button class="btn sm" style="margin-bottom:1rem" onclick="window._eq.openImportStatus()">Import status updates (CSV)</button>`;
+  const addBtn    = _isFullAdmin ? `<button class="btn primary sm" style="margin-bottom:1rem;margin-right:.5rem" onclick="window._eq.openAddItems()">+ Add items</button>` : '';
+  const exportBtn = _isFullAdmin ? `<button class="btn sm" style="margin-bottom:1rem;margin-right:.5rem" onclick="window._eq.exportQR('${filter_type_id}')">Export QR sheet</button>` : '';
+  const importBtn = _isFullAdmin ? `<button class="btn sm" style="margin-bottom:1rem" onclick="window._eq.openImportStatus()">Import status updates (CSV)</button>` : '';
 
   const filter = `
     <div style="display:flex;align-items:center;gap:.5rem;margin-bottom:.75rem">
@@ -363,7 +471,7 @@ async function renderItemsTable(filter_type_id = '') {
     return;
   }
 
-  const bulkBar = `
+  const bulkBar = _isFullAdmin ? `
     <div id="eq-bulk-bar" style="display:none;align-items:center;gap:.5rem;flex-wrap:wrap;
          padding:.6rem .75rem;margin-bottom:.5rem;background:var(--accent-light);
          border:0.5px solid var(--accent);border-radius:var(--radius);font-size:13px">
@@ -381,13 +489,13 @@ async function renderItemsTable(filter_type_id = '') {
       </select>
       <button class="btn primary sm" onclick="window._eq.applyBulk()">Apply to selected</button>
     </div>
-  `;
+  ` : '';
 
   area.innerHTML = addBtn + exportBtn + importBtn + filter + bulkBar + `
     <table class="data-table">
       <thead>
         <tr>
-          <th style="width:32px"><input type="checkbox" id="eq-sel-all" title="Select all" onchange="window._eq.toggleSelectAll(this.checked)"></th>
+          ${_isFullAdmin ? `<th style="width:32px"><input type="checkbox" id="eq-sel-all" title="Select all" onchange="window._eq.toggleSelectAll(this.checked)"></th>` : ''}
           <th>Item</th><th>QR code</th><th>Status</th><th>Home location</th><th>Return rule</th><th>GPS</th><th></th>
         </tr>
       </thead>
@@ -401,8 +509,8 @@ async function renderItemsTable(filter_type_id = '') {
           const hasGps = it.latitude != null;
           return `
           <tr id="item-row-${it.id}">
-            <td><input type="checkbox" data-id="${it.id}" ${sel ? 'checked' : ''}
-              onchange="window._eq.toggleSelect(${it.id}, this.checked)"></td>
+            ${_isFullAdmin ? `<td><input type="checkbox" data-id="${it.id}" ${sel ? 'checked' : ''}
+              onchange="window._eq.toggleSelect(${it.id}, this.checked)"></td>` : ''}
             <td>
               <div>${esc(it.display_name)}</div>
               <div style="font-size:11px;color:var(--text3)">${esc(it.type_name)}</div>
@@ -414,8 +522,11 @@ async function renderItemsTable(filter_type_id = '') {
             <td style="font-size:12px;color:var(--text3)">${hasGps ? '✓' : '—'}</td>
             <td>
               <div class="table-actions">
-                <button class="action-btn" onclick="window._eq.editItem(${it.id})">Edit</button>
-                <button class="action-btn danger" onclick="window._eq.deleteItem(${it.id})">Retire</button>
+                ${_isFullAdmin ? `
+                  <button class="action-btn" onclick="window._eq.editItem(${it.id})">Edit</button>
+                  <button class="action-btn danger" onclick="window._eq.deleteItem(${it.id})">Retire</button>
+                ` : ''}
+                <button class="action-btn" onclick="window._eq.manageItemRules(${it.id})">Restrictions</button>
               </div>
             </td>
           </tr>
@@ -424,7 +535,7 @@ async function renderItemsTable(filter_type_id = '') {
     </table>
   `;
 
-  _updateBulkBar();
+  if (_isFullAdmin) _updateBulkBar();
 }
 
 function toggleSelect(id, checked) {
@@ -752,6 +863,97 @@ async function deleteItem(id) {
     _toast('Item retired');
     await renderItemsTable();
   } catch (e) { _toast('Error: ' + e.message); }
+}
+
+// ─── Item-level self-checkout restrictions ─────────────────────────────────
+// Restrict a specific item to a specific staff member — the item-level
+// counterpart to the type-level department restrictions in showTypeForm().
+// Reachable by both full admins and dept admins (borrow_rules.php scopes
+// dept admins to items owned by their own department).
+
+function manageItemRules(id) {
+  const it = _items.find(x => x.id === id);
+  if (!it) return;
+
+  const form = document.getElementById('eq-form-area');
+  form.innerHTML = `
+    <div class="form-card">
+      <h2>Self-checkout restrictions</h2>
+      <div style="font-size:13px;color:var(--text2);margin-bottom:.5rem">${esc(it.display_name)}</div>
+      <div style="font-size:11px;color:var(--text3);margin-bottom:.5rem">
+        With no restrictions, anyone with borrow permission can self-checkout this item.
+        Add a specific staff member to restrict it to just them.
+      </div>
+      <div id="ei-borrow-rules"><span class="spinner" style="width:14px;height:14px"></span></div>
+      <div style="display:flex;gap:.5rem;margin-top:.5rem">
+        <select id="ei-rule-user" style="flex:1"><option value="">— Select staff member —</option></select>
+        <button class="btn sm" onclick="window._eq.addItemBorrowRule(${id})">+ Restrict</button>
+      </div>
+      <div class="form-actions">
+        <button class="btn sm" onclick="window._eq.cancelItemEdit()">Close</button>
+      </div>
+    </div>
+  `;
+  loadItemBorrowRules(id);
+}
+
+async function loadItemBorrowRules(itemId) {
+  const listEl = document.getElementById('ei-borrow-rules');
+  const selEl  = document.getElementById('ei-rule-user');
+  if (!listEl) return;
+  try {
+    const data  = await get('/admin/borrow-rules?item_id=' + itemId);
+    const rules = data.rules || [];
+    renderItemBorrowRulesList(itemId, rules);
+    if (selEl) {
+      const used = new Set(rules.map(r => r.allowed_user_id));
+      selEl.innerHTML = '<option value="">— Select staff member —</option>' +
+        _deptUsers.filter(u => !used.has(u.id))
+          .map(u => `<option value="${u.id}">${esc(u.display_name)}</option>`).join('');
+    }
+  } catch {
+    listEl.innerHTML = '<div style="font-size:12px;color:var(--text3)">Could not load restrictions</div>';
+    if (selEl) selEl.innerHTML = '<option value="">— No staff list available —</option>';
+  }
+}
+
+function renderItemBorrowRulesList(itemId, rules) {
+  const listEl = document.getElementById('ei-borrow-rules');
+  if (!listEl) return;
+  const userRules = rules.filter(r => r.allowed_user_id);
+  if (!userRules.length) {
+    listEl.innerHTML = '<div style="font-size:12px;color:var(--text3)">No restrictions — open to anyone with borrow permission</div>';
+    return;
+  }
+  listEl.innerHTML = userRules.map(r => `
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:.5rem;padding:.35rem 0;font-size:13px">
+      <span>${esc(r.user_name || 'Unknown user')}</span>
+      <button class="action-btn danger" onclick="window._eq.removeItemBorrowRule(${r.id}, ${itemId})">Remove</button>
+    </div>
+  `).join('');
+}
+
+async function addItemBorrowRule(itemId) {
+  const sel = document.getElementById('ei-rule-user');
+  const userId = sel?.value;
+  if (!userId) { _toast('Select a staff member first'); return; }
+  try {
+    await post('/admin/borrow-rules', { item_id: itemId, allowed_user_id: +userId });
+    await loadItemBorrowRules(itemId);
+    _toast('Restriction added');
+  } catch (e) {
+    _toast('Error: ' + e.message);
+  }
+}
+
+async function removeItemBorrowRule(ruleId, itemId) {
+  try {
+    await del('/admin/borrow-rules/' + ruleId);
+    await loadItemBorrowRules(itemId);
+    _toast('Restriction removed');
+  } catch (e) {
+    _toast('Error: ' + e.message);
+  }
 }
 
 function exportQR(type_id = '') {
