@@ -3,7 +3,7 @@ declare(strict_types=1);
 
 function handle_qr_sheet(): void {
     require_method('GET');
-    require_manage_users();
+    require_manage_equipment();
 
     $type_id = (int)($_GET['type_id'] ?? 0);
     $where   = $type_id ? 'WHERE i.equipment_type_id = ? AND i.status != "retired"' : "WHERE i.status != 'retired'";

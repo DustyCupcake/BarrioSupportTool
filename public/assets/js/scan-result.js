@@ -22,7 +22,7 @@ export function renderScanResult(container, lookupData, perms, onAction) {
     case 'item': {
       const { name, category, status, is_voucher,
               current_dept, current_group, holder_dept, current_person,
-              dept_label, borrowable, borrow_eligible } = lookupData;
+              dept_label, borrowable, borrow_eligible, borrow_reason } = lookupData;
 
       const holder = current_person?.name || current_group?.name
                    || holder_dept?.name || current_dept?.name || null;
@@ -55,8 +55,13 @@ export function renderScanResult(container, lookupData, perms, onAction) {
           }
         }
         if (status === 'available') {
-          if (borrowable && borrow_eligible && has('person_borrow')) {
-            actionsHtml += actionBtn('Borrow (check out to me)', 'borrow_self', lookupData, 'primary');
+          if (borrowable && has('person_borrow')) {
+            if (borrow_eligible) {
+              actionsHtml += actionBtn('Borrow (check out to me)', 'borrow_self', lookupData, 'primary');
+            } else {
+              const note = borrowReasonText(borrow_reason);
+              if (note) actionsHtml += `<div class="scan-restriction-note">${esc(note)}</div>`;
+            }
           }
           if (has('checkout_equipment') || has('sub_checkout')) {
             actionsHtml += actionBtn('Start lending flow', 'checkout_start', lookupData);
@@ -182,6 +187,14 @@ function formatItemStatus(status, holder, is_voucher) {
 
 function statusClass(status) {
   return { available: 'status-available', 'checked-out': 'status-out', activated: 'status-activated', used: 'status-used', retired: 'status-retired' }[status] ?? '';
+}
+
+function borrowReasonText(reason) {
+  return {
+    restricted:    'Restricted to specific staff — ask a team member to check it out for you.',
+    shift_session: "Shift sessions can't self-checkout equipment — ask a team member.",
+    no_permission: "You don't have permission to borrow this — ask a team member.",
+  }[reason] ?? null;
 }
 
 const esc = s => String(s ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');

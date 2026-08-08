@@ -10,7 +10,7 @@
 
 import { get, post, put } from './api.js?v=1.0.1';
 import { Scanner, scanFeedbackSuccess, scanFeedbackError } from './scanner.js?v=1.0.1';
-import { renderScanResult } from './scan-result.js?v=1.0.1';
+import { renderScanResult } from './scan-result.js?v=1.0.2';
 
 // Persistent session state (survives tab switches)
 let _session          = null;   // { entity, items, mode }

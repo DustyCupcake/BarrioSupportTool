@@ -5,7 +5,10 @@ declare(strict_types=1);
 
 function handle_list_types(): void {
     require_method('GET');
-    require_manage_users();
+    require_auth();
+    if (!has_permission('manage_equipment') && !has_permission('sub_checkout')) {
+        json_error('Forbidden', 403);
+    }
 
     $rows = db()->query(
         'SELECT t.id, t.name, t.category, t.secure_qr, t.borrowable, t.is_crate, t.deployment_destination,
@@ -55,7 +58,7 @@ function handle_list_types(): void {
 
 function handle_create_type(): void {
     require_method('POST');
-    require_manage_users();
+    require_manage_equipment();
     verify_csrf();
 
     $b                    = body();
@@ -89,7 +92,7 @@ function handle_create_type(): void {
 
 function handle_update_type(): void {
     require_method('PUT');
-    require_manage_users();
+    require_manage_equipment();
     verify_csrf();
 
     $b                    = body();
@@ -137,7 +140,7 @@ function handle_update_type(): void {
 
 function handle_delete_type(): void {
     require_method('DELETE');
-    require_manage_users();
+    require_manage_equipment();
     verify_csrf();
 
     $b  = body();
@@ -158,7 +161,11 @@ function handle_delete_type(): void {
 
 function handle_list_items(): void {
     require_method('GET');
-    require_manage_users();
+    $user       = require_auth();
+    $full_admin = has_permission('manage_equipment');
+    if (!$full_admin && !has_permission('sub_checkout')) {
+        json_error('Forbidden', 403);
+    }
 
     $type_id = (int)($_GET['type_id'] ?? 0);
     $status  = $_GET['status'] ?? null;
@@ -169,6 +176,15 @@ function handle_list_items(): void {
     if (in_array($status, ['available', 'checked-out', 'retired'], true)) {
         $where[] = 'i.status = ?';
         $params[] = $status;
+    }
+
+    // Dept admins (sub_checkout, not manage_equipment) only see their own department's items
+    if (!$full_admin) {
+        $dept_ids = $user['dept_ids'] ?? [];
+        if (empty($dept_ids)) { json_ok(['items' => []]); return; }
+        $placeholders = implode(',', array_fill(0, count($dept_ids), '?'));
+        $where[]  = "i.owning_dept_id IN ($placeholders)";
+        $params   = array_merge($params, $dept_ids);
     }
 
     $whereSQL = $where ? 'WHERE ' . implode(' AND ', $where) : '';
@@ -209,7 +225,7 @@ function handle_list_items(): void {
 
 function handle_create_items(): void {
     require_method('POST');
-    require_manage_users();
+    require_manage_equipment();
     verify_csrf();
 
     $b         = body();
@@ -613,7 +629,7 @@ function handle_import_status_csv(): void {
 
 function handle_delete_item(): void {
     require_method('DELETE');
-    require_manage_users();
+    require_manage_equipment();
     verify_csrf();
 
     $b  = body();
@@ -632,7 +648,7 @@ function handle_delete_item(): void {
 
 function handle_list_spec_fields(): void {
     require_method('GET');
-    require_manage_users();
+    require_manage_equipment();
 
     $type_id = (int)($_GET['id'] ?? 0);
     if (!$type_id) json_error('type id required');
@@ -654,7 +670,7 @@ function handle_list_spec_fields(): void {
 
 function handle_create_spec_field(): void {
     require_method('POST');
-    require_manage_users();
+    require_manage_equipment();
     verify_csrf();
 
     $type_id    = (int)($_GET['id'] ?? 0);
@@ -703,7 +719,7 @@ function handle_create_spec_field(): void {
 
 function handle_update_spec_field(): void {
     require_method('PUT');
-    require_manage_users();
+    require_manage_equipment();
     verify_csrf();
 
     $sf_id = (int)($_GET['id'] ?? 0);
@@ -741,7 +757,7 @@ function handle_update_spec_field(): void {
 
 function handle_delete_spec_field(): void {
     require_method('DELETE');
-    require_manage_users();
+    require_manage_equipment();
     verify_csrf();
 
     $sf_id = (int)($_GET['id'] ?? 0);
@@ -767,7 +783,7 @@ function handle_delete_spec_field(): void {
 
 function handle_reorder_spec_fields(): void {
     require_method('PUT');
-    require_manage_users();
+    require_manage_equipment();
     verify_csrf();
 
     $type_id = (int)($_GET['id'] ?? 0);
