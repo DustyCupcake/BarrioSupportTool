@@ -154,12 +154,16 @@ function handle_barrio_distribute(): void {
     if ($group['arrival_status'] !== 'on-site') json_error('Group is not on site', 409);
 
     $db = db();
+    $water_fill_id = water_fill_type_id($db);
     $db->beginTransaction();
     try {
         foreach ($items as $item) {
             $type_id  = (int)($item['type_id'] ?? 0);
             $quantity = (int)($item['quantity'] ?? 0);
             if (!$type_id || $quantity === 0) continue;
+            // water_fill's real credit ledger is only ever written by the truck
+            // confirm/adhoc-fill flow — never through this generic endpoint.
+            if ($water_fill_id !== null && $type_id === $water_fill_id) continue;
 
             $db->prepare(
                 'INSERT INTO distribution_events

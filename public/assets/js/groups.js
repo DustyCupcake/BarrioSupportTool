@@ -328,8 +328,14 @@ function showArrivalForm(barrio, entitlements) {
   const area = container.querySelector('#barrio-arrival-area');
   if (!area) return;
 
-  const itemInputsHTML = entitlements.length
-    ? entitlements.map(e => `
+  // water_fill is excluded here — its real credit ledger is only ever written
+  // by the truck confirm/adhoc-fill flow, never by generic arrival distribution
+  // (the backend rejects it too; this just keeps it off the form in the first
+  // place so staff aren't offered a control that wouldn't do anything).
+  const arrivalEntitlements = entitlements.filter(e => e.key_name !== 'water_fill');
+
+  const itemInputsHTML = arrivalEntitlements.length
+    ? arrivalEntitlements.map(e => `
         <div style="display:flex;align-items:center;gap:.75rem;margin-bottom:.5rem">
           <label style="flex:1;font-size:14px;color:var(--text);margin:0">
             ${_esc(e.name)} given
@@ -400,9 +406,15 @@ function showDistributeForm(barrio, entitlements) {
   const area = container.querySelector('#barrio-distribute-area');
   if (!area) return;
 
-  const allDone = entitlements.every(e => e.remaining <= 0);
+  // water_fill is excluded here — its real credit ledger is only ever written
+  // by the truck confirm/adhoc-fill flow, never by generic distribution (the
+  // backend rejects it too; this just keeps it off the form in the first
+  // place so staff aren't offered a control that wouldn't do anything).
+  const distEntitlements = entitlements.filter(e => e.key_name !== 'water_fill');
 
-  const itemInputsHTML = entitlements.map(e => {
+  const allDone = distEntitlements.every(e => e.remaining <= 0);
+
+  const itemInputsHTML = distEntitlements.map(e => {
     const defaultVal = Math.max(0, e.remaining);
     const remColor = e.remaining < 0 ? 'color:var(--danger)' : e.remaining === 0 ? 'color:var(--success,#22c55e)' : 'color:var(--warn)';
     return `

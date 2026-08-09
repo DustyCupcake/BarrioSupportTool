@@ -3,7 +3,6 @@ import { initOfflineSync } from './offline.js?v=1.0.1';
 import { init as initGroups, destroy as destroyGroups } from './groups.js?v=1.0.3';
 import { init as initInventory } from './inventory.js?v=1.0.1';
 import { init as initHistory } from './history.js?v=1.0.0';
-import { init as initValidate, destroy as destroyValidate } from './validate.js?v=1.0.2';
 import { init as initOrders } from './order-form.js?v=1.0.2';
 import { init as initHome } from './home.js?v=1.0.2';
 import { init as initScanner, destroy as destroyScanner, getSession } from './unified-scanner.js?v=1.0.5';
@@ -68,16 +67,6 @@ async function boot() {
   if (user?.language) setLang(user.language);
 
   const perms = user?.permissions || [];
-
-  // Validator-only mode: unchanged
-  const isValidatorOnly = user && (user.role === 'validator' || user.is_shift) &&
-    perms.includes('validate_vouchers') &&
-    !perms.includes('checkout_equipment') &&
-    !perms.includes('sub_checkout');
-  if (isValidatorOnly) {
-    bootValidator();
-    return;
-  }
 
   if (user) {
     initAccount(user);
@@ -186,27 +175,9 @@ function configureSideMenu(perms) {
   }
 }
 
-function bootValidator() {
-  document.querySelector('header')?.querySelectorAll('nav, #back-bar').forEach(el => el.style.display = 'none');
-
-  document.getElementById('menu-logout-btn')?.addEventListener('click', async () => {
-    await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
-    window.location.href = '/';
-  });
-
-  document.querySelectorAll('.tab-panel').forEach(p => p.style.display = 'none');
-  const panel = document.getElementById('tab-validate');
-  if (panel) {
-    panel.style.display = '';
-    currentTab = 'validate';
-    initValidate(panel, true);
-  }
-}
-
 function rerenderCurrentTab() {
   if (!currentTab) return;
   if (currentTab === 'groups')        destroyGroups();
-  if (currentTab === 'validate')      destroyValidate();
   if (currentTab === 'scanner')       destroyScanner();
   if (currentTab === 'fill-requests') destroyFillRequests();
 
@@ -220,7 +191,6 @@ function rerenderCurrentTab() {
     case 'inventory':     initInventory(panel);                 break;
     case 'history':       initHistory(panel);                   break;
     case 'orders':        initOrders(panel);                    break;
-    case 'validate':      initValidate(panel, true);            break;
     case 'fill-requests': initFillRequests(panel, _currentUser); break;
   }
 }
@@ -229,15 +199,14 @@ export function switchTab(name, extra = null) {
   if (currentTab === name && !extra) return;
 
   if (currentTab === 'groups')        destroyGroups();
-  if (currentTab === 'validate')      destroyValidate();
   if (currentTab === 'scanner')       destroyScanner();
   if (currentTab === 'fill-requests') destroyFillRequests();
 
   currentTab = name;
 
-  // Back bar: visible on every tab except home and validate
+  // Back bar: visible on every tab except home
   const backBar = document.getElementById('back-bar');
-  if (backBar) backBar.classList.toggle('visible', name !== 'home' && name !== 'validate');
+  if (backBar) backBar.classList.toggle('visible', name !== 'home');
 
   document.querySelectorAll('.tab-panel').forEach(p => p.style.display = 'none');
   const panel = document.getElementById('tab-' + name);
@@ -250,7 +219,6 @@ export function switchTab(name, extra = null) {
     case 'inventory':     initInventory(panel);                 break;
     case 'history':       initHistory(panel);                   break;
     case 'orders':        initOrders(panel);                    break;
-    case 'validate':      initValidate(panel, true);            break;
     case 'fill-requests': initFillRequests(panel, _currentUser); break;
   }
 }

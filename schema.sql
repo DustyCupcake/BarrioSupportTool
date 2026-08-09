@@ -56,6 +56,7 @@ CREATE TABLE IF NOT EXISTS groups (
     id                              INT UNSIGNED  NOT NULL AUTO_INCREMENT,
     name                            VARCHAR(128)  NOT NULL,
     qr_code                         VARCHAR(64)   NULL,
+    fill_voucher_code               VARCHAR(64)   NULL COMMENT 'Separate from qr_code — resolves to this group for fill requests only, never accepted as a shift_tokens.token, so it cannot start a self-service session',
     dept_id                         INT UNSIGNED  NULL,
     assigned_staff_id               INT UNSIGNED  NULL,
     enable_arrival_tracking         TINYINT(1)    NOT NULL DEFAULT 0,
@@ -74,6 +75,7 @@ CREATE TABLE IF NOT EXISTS groups (
     PRIMARY KEY (id),
     UNIQUE KEY uq_group_dept_name (dept_id, name),
     UNIQUE KEY uq_group_qr_code   (qr_code),
+    UNIQUE KEY uq_group_fill_voucher_code (fill_voucher_code),
     KEY idx_group_arrival_status (arrival_status),
     KEY idx_group_dept           (dept_id),
     KEY idx_group_assigned       (assigned_staff_id),
@@ -190,6 +192,16 @@ CREATE TABLE IF NOT EXISTS consumable_types (
 
 INSERT IGNORE INTO consumable_types (name, key_name, sort_order)
 VALUES ('Water Fill', 'water_fill', 10);
+
+-- Physical-voucher fallback: pure issuance bookkeeping ("how many paper
+-- vouchers did we hand this group at arrival"), tracked via the same
+-- group_entitlements/distribution_events mechanism as any other consumable
+-- type, but deliberately a distinct type_id from water_fill so it can never
+-- touch the real fill-credit ledger. See handle_barrio_distribute() and
+-- handle_group_arrival(), which explicitly refuse to let water_fill itself
+-- be distributed through this generic path.
+INSERT IGNORE INTO consumable_types (name, key_name, sort_order)
+VALUES ('Water Vouchers (Physical)', 'water_voucher_physical', 11);
 
 -- ─── Group consumable entitlements ─────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS group_entitlements (
@@ -502,6 +514,7 @@ CREATE TABLE IF NOT EXISTS fill_requests (
     filled_at        DATETIME          NULL,
     filled_by        INT UNSIGNED      NULL,
     notes            TEXT              NULL,
+    via_physical_voucher TINYINT(1)    NOT NULL DEFAULT 0 COMMENT 'Requested on the group''s behalf via a redeemed paper voucher, not the digital flow',
     PRIMARY KEY (id),
     KEY idx_fr_group   (group_id),
     KEY idx_fr_cube    (cube_item_id),

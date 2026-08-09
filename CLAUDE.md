@@ -118,7 +118,7 @@ A `group_roles` table (per-group membership, mirroring `user_dept_roles`) lets a
 - `dept_staff` — sub-checkout/sub-checkin (if dept is sub-lending), view dept inventory, submit orders
 - Legacy aliases: `admin` → `production_admin`, `staff` → `production_staff`, `validator` → `dept_staff`
 
-**Key permission strings:** `checkout_equipment`, `checkin_equipment`, `sub_checkout`, `sub_checkin`, `validate_vouchers`, `view_inventory`, `view_dept_inventory`, `view_groups`, `manage_equipment`, `manage_consumables`, `manage_users`, `manage_departments`, `manage_groups`, `manage_shifts`, `create_invites`, `submit_orders`, `label_equipment`, `person_checkout`
+**Key permission strings:** `checkout_equipment`, `checkin_equipment`, `sub_checkout`, `sub_checkin`, `validate_vouchers`, `view_inventory`, `view_dept_inventory`, `view_groups`, `manage_equipment`, `manage_consumables`, `manage_users`, `manage_departments`, `manage_groups`, `manage_shifts`, `create_invites`, `submit_orders`, `label_equipment`, `person_checkout`, `request_fills`, `fill_truck`, `view_fill_status` (read-only visibility into fill requests/flags/run status — grantable via role defaults or a `user_permissions` override, without `manage_groups`/`manage_equipment`'s write access)
 
 **CSRF:** `X-CSRF-Token` header required for all POST/PUT/DELETE. Token returned by `GET /auth/me` and `GET /auth/csrf`, verified by `verify_csrf()` in auth.php.
 
@@ -209,6 +209,10 @@ mysql -u user -p db < migrate_groups_holder_model.sql   # merges barrios+artists
 mysql -u user -p db < migrate_phase3_identity.sql        # adds groups.enable_self_service_shift; provisions standing
                                                           # shifts for existing groups so barrio self-identify keeps
                                                           # working. Depends on migrate_groups_holder_model.sql.
+mysql -u user -p db < migrate_phase5_water.sql            # water/fill fixes: adds the water_voucher_physical
+                                                          # consumable type, fill_requests.via_physical_voucher,
+                                                          # and groups.fill_voucher_code. Depends on
+                                                          # migrate_groups_holder_model.sql and migrate_phase3_identity.sql.
 ```
 
 ### Adding an Endpoint

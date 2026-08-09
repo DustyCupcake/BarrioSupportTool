@@ -34,7 +34,7 @@ const SECTION_PERMS = {
   orders:             ['manage_orders'],
   'storage-locations': ['manage_equipment'],
   'person-badges':     ['manage_users'],
-  'fill-requests':     ['manage_groups'],
+  'fill-requests':     ['manage_groups', 'view_fill_status'],
   'fill-route':        ['manage_groups', 'manage_equipment'],
   'site-map':          ['manage_groups', 'manage_equipment'],
   'print-templates':   ['manage_equipment'],
@@ -131,7 +131,7 @@ function navigate(section) {
     case 'orders':             initOrders(content, toast);              break;
     case 'storage-locations':  initStorageLocations(content, toast);    break;
     case 'person-badges':      initPersonTokens(content, toast);        break;
-    case 'fill-requests':      initFillRequests(content, toast);        break;
+    case 'fill-requests':      initFillRequests(content, toast, _user); break;
     case 'fill-route':         initFillRoute(content, toast);           break;
     case 'site-map':           initSiteMap(content, toast);             break;
     case 'print-templates':    initPrintTemplates(content, toast);      break;

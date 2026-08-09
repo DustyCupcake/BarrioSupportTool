@@ -4,7 +4,7 @@ declare(strict_types=1);
 // ─── Default permission sets per base role ────────────────────────────────────
 const ROLE_PERMISSIONS = [
     'production_admin' => [
-        'validate_vouchers','checkout_equipment','checkin_equipment',
+        'checkout_equipment','checkin_equipment',
         'sub_checkout','sub_checkin',
         'view_inventory','view_dept_inventory',
         'view_groups','manage_groups',
@@ -12,14 +12,13 @@ const ROLE_PERMISSIONS = [
         'manage_users','manage_departments',
         'create_invites','manage_orders','submit_orders',
         'label_equipment','manage_shifts',
-        'request_fills','fill_truck',
+        'request_fills','fill_truck','view_fill_status',
         'update_item_location',
     ],
     'production_staff' => [
         'checkout_equipment','checkin_equipment',
         'view_inventory','view_groups',
-        'validate_vouchers',
-        'request_fills',
+        'request_fills','view_fill_status',
         'update_item_location',
     ],
     'dept_admin' => [

@@ -148,7 +148,6 @@ function renderTypesTable() {
           <tr>
             <td>
               ${esc(t.name)}
-              ${t.secure_qr ? '<span class="badge voucher" style="margin-left:.4rem;font-size:10px">Voucher</span>' : ''}
               ${t.borrowable ? '<span class="badge" style="margin-left:.4rem;font-size:10px;background:var(--accent-light);color:var(--accent-text)">Borrowable</span>' : ''}
               ${t.is_crate ? '<span class="badge" style="margin-left:.4rem;font-size:10px;background:var(--surface2);color:var(--text2)">Crate</span>' : ''}
             </td>
@@ -196,10 +195,6 @@ function showTypeForm(t) {
           <input type="text" id="et-cat" value="${esc(t?.category ?? '')}" placeholder="e.g. Power" maxlength="64">
         </div>
       </div>
-      <label class="checkbox-row">
-        <input type="checkbox" id="et-secure" ${t?.secure_qr ? 'checked' : ''}>
-        Secure QR — random 5-digit codes, voucher mode
-      </label>
       <label class="checkbox-row">
         <input type="checkbox" id="et-borrowable" ${t?.borrowable ? 'checked' : ''}>
         Borrowable — staff can personally check out items of this type
@@ -365,7 +360,6 @@ async function saveType() {
   const id                  = document.getElementById('et-id').value;
   const name                = document.getElementById('et-name').value.trim();
   const cat                 = document.getElementById('et-cat').value.trim();
-  const secure_qr           = document.getElementById('et-secure').checked;
   const borrowable          = document.getElementById('et-borrowable').checked;
   const is_crate            = document.getElementById('et-crate').checked;
   const deployment_destination = document.getElementById('et-dest')?.value.trim() || null;
@@ -384,7 +378,7 @@ async function saveType() {
     'This will block checkin for every item of this type (that doesn\'t have its own override) until a storage location is scanned — including items just dropped off somewhere. Continue?'
   )) return;
 
-  const payload = { name, category: cat, secure_qr, borrowable, is_crate, deployment_destination,
+  const payload = { name, category: cat, borrowable, is_crate, deployment_destination,
     home_location_id: home_location_id ? +home_location_id : null,
     require_home_location, require_any_location };
 

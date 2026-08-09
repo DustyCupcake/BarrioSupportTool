@@ -8,6 +8,7 @@ require_once __DIR__ . '/lib/db.php';
 require_once __DIR__ . '/lib/response.php';
 require_once __DIR__ . '/lib/group_location.php';
 require_once __DIR__ . '/lib/holder.php';
+require_once __DIR__ . '/lib/consumables.php';
 require_once __DIR__ . '/auth.php';
 
 // Naive DATETIME columns (shift windows, invite/token expiry, order deadlines) are entered
@@ -76,13 +77,9 @@ $routes = [
     ['POST', '/sub-checkout',        'routes/transactions.php', 'handle_sub_checkout'],
     ['POST', '/checkin',             'routes/transactions.php', 'handle_checkin'],
     ['PUT',  '/items/label',         'routes/transactions.php', 'handle_set_label'],
-    ['POST', '/items/use',           'routes/transactions.php', 'handle_used'],
-    ['POST', '/items/activate',      'routes/transactions.php', 'handle_activate'],
-    ['POST', '/items/fill-confirm',  'routes/transactions.php', 'handle_fill_confirm'],
 
     // Public / unified scan
     ['GET',  '/scan/lookup',         'routes/scan.php',         'handle_scan_lookup'],
-    ['GET',  '/voucher/status',      'routes/voucher.php',      'handle_voucher_status'],
     ['GET',  '/item/info',           'routes/item_public.php',  'handle_item_info'],
     ['GET',  '/water/cube-status',   'routes/fill_requests.php','handle_cube_status'],
 
@@ -190,21 +187,26 @@ $routes = [
     ['DELETE', '/admin/items',                   'routes/admin/equipment.php',   'handle_delete_item'],
     ['GET',    '/admin/items/qr-sheet',          'routes/admin/qr_sheet.php',    'handle_qr_sheet'],
     ['GET',    '/admin/group-qr',                'routes/admin/group_qr.php',    'handle_group_qr'],
+    ['GET',    '/admin/fill-voucher-sheet',      'routes/admin/fill_voucher.php', 'handle_fill_voucher_sheet'],
     ['GET',    '/admin/dept-qr',                'routes/admin/dept_qr.php',     'handle_dept_qr'],
     ['GET',    '/my-qr',                        'routes/persons.php',           'handle_my_qr'],
     ['GET',    '/my-qr-img',                    'routes/persons.php',           'handle_my_qr_img'],
 
     // Fill direction claims (truck crew)
-    ['GET',  '/fill/direction-status',   'routes/fill_requests.php', 'handle_direction_status'],
-    ['POST', '/fill/claim-direction',    'routes/fill_requests.php', 'handle_claim_direction'],
-    ['POST', '/fill/release-direction',  'routes/fill_requests.php', 'handle_release_direction'],
+    ['GET',  '/fill/direction-status',   'routes/fill_run_claims.php', 'handle_direction_status'],
+    ['POST', '/fill/claim-direction',    'routes/fill_run_claims.php', 'handle_claim_direction'],
+    ['POST', '/fill/release-direction',  'routes/fill_run_claims.php', 'handle_release_direction'],
 
-    // Admin — fill credits & route ordering
-    ['POST', '/admin/sell-fill-credits', 'routes/fill_requests.php', 'handle_sell_fill_credits'],
-    ['GET',  '/admin/fill-requests',     'routes/fill_requests.php', 'handle_admin_list_fill_requests'],
-    ['GET',  '/admin/fill-route/cubes',  'routes/fill_requests.php', 'handle_admin_fill_route_cubes'],
-    ['PUT',  '/admin/fill-route/order',  'routes/fill_requests.php', 'handle_admin_save_fill_route'],
-    ['POST', '/admin/fill-route/apply-barrio-locations', 'routes/fill_requests.php', 'handle_admin_apply_barrio_locations'],
+    // Admin — fill credits & status board
+    ['POST', '/admin/sell-fill-credits', 'routes/admin/fill_requests.php', 'handle_sell_fill_credits'],
+    ['GET',  '/admin/fill-requests',     'routes/admin/fill_requests.php', 'handle_admin_list_fill_requests'],
+    ['GET',  '/admin/fill-flags',        'routes/admin/fill_requests.php', 'handle_admin_list_flagged_fills'],
+    ['GET',  '/admin/fill-pending-sanitation', 'routes/admin/fill_requests.php', 'handle_admin_pending_sanitation'],
+
+    // Admin — fill route ordering
+    ['GET',  '/admin/fill-route/cubes',  'routes/admin/fill_route.php', 'handle_admin_fill_route_cubes'],
+    ['PUT',  '/admin/fill-route/order',  'routes/admin/fill_route.php', 'handle_admin_save_fill_route'],
+    ['POST', '/admin/fill-route/apply-barrio-locations', 'routes/admin/fill_route.php', 'handle_admin_apply_barrio_locations'],
 
     ['GET',    '/admin/map-overlay',     'routes/admin/map_overlay.php', 'handle_admin_get_map_overlay'],
     ['POST',   '/admin/map-overlay',     'routes/admin/map_overlay.php', 'handle_admin_upload_map_overlay'],

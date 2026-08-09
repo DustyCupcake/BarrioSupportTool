@@ -9,11 +9,10 @@ import { get, post, put, del } from '../api.js?v=1.0.1';
 const PERMISSION_OPTIONS = [
   'checkout_equipment', 'checkin_equipment',
   'sub_checkout', 'sub_checkin',
-  'validate_vouchers',
   'view_inventory', 'view_dept_inventory', 'view_groups',
   'manage_equipment', 'manage_consumables',
   'create_invites', 'submit_orders', 'label_equipment',
-  'request_fills', 'fill_truck', 'update_item_location',
+  'request_fills', 'fill_truck', 'view_fill_status', 'update_item_location',
   'person_borrow',
 ];
 

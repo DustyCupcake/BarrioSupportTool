@@ -244,6 +244,10 @@ function renderBarrioDetail(data, container) {
                  background:var(--surface);color:var(--text);text-align:center">
         <span style="font-size:12px;color:var(--text3)">of ${maxRequest} max</span>
       </div>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text2);margin-bottom:.75rem">
+        <input type="checkbox" id="fr-physical-voucher" style="width:auto;margin:0;accent-color:var(--accent)">
+        Redeemed physical voucher (offline fallback)
+      </label>
       <button class="btn" id="fr-submit-barrio-btn" data-barrio-id="${barrio.id}">
         Request fills
       </button>
@@ -252,11 +256,12 @@ function renderBarrioDetail(data, container) {
 
   container.querySelector('#fr-submit-barrio-btn').onclick = async (e) => {
     const fills_requested = parseInt(_panel.querySelector('#fr-fills-input')?.value ?? '1', 10);
+    const via_physical_voucher = !!_panel.querySelector('#fr-physical-voucher')?.checked;
     const btn = e.currentTarget;
     btn.disabled = true;
     btn.textContent = 'Requesting…';
     try {
-      await post('/fill-requests', { entity_id: barrio.id, fills_requested });
+      await post('/fill-requests', { entity_id: barrio.id, fills_requested, via_physical_voucher });
       showResult(`Fill request created: ${fills_requested} fill${fills_requested !== 1 ? 's' : ''} for ${barrio.name}.`);
       loadBarrioDetail(barrio.id);
     } catch (err) {

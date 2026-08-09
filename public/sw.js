@@ -22,8 +22,6 @@ const APP_SHELL = [
   '/assets/js/inventory.js?v=1.0.1',
   '/assets/js/history.js?v=1.0.0',
   '/assets/js/groups.js?v=1.0.3',
-  '/assets/js/validate.js?v=1.0.2',
-  '/assets/js/activate.js?v=1.0.0',
   '/assets/js/scan-overlay.js?v=1.0.1',
 ];
 
