@@ -239,6 +239,7 @@ function renderTable(wrap) {
             <td>
               <div class="table-actions">
                 <button class="action-btn" onclick="window.open('/api/admin/group-qr?id=${g.id}','_blank')">QR</button>
+                <button class="action-btn" onclick="window.open('/api/admin/fill-voucher-sheet?id=${g.id}','_blank')" title="Print physical water-fill vouchers for this group">Fill Vouchers</button>
                 <button class="action-btn" onclick="window._groups.openOrders(${g.id})">Orders</button>
                 <button class="action-btn" onclick="window._groups.openLocations(${g.id})">Locations</button>
                 <button class="action-btn" onclick="window._groups.openEdit(${g.id})">Edit</button>

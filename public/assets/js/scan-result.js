@@ -4,8 +4,7 @@
  *
  * renderScanResult(container, lookupData, perms, onAction)
  *   onAction(type, data) — callback fired when an action button is tapped.
- *   Action types: 'checkin', 'borrow_self', 'checkout_start', 'activate',
- *                 'validate', 'entity_select', 'login'
+ *   Action types: 'checkin', 'borrow_self', 'checkout_start', 'entity_select', 'login'
  */
 
 export function renderScanResult(container, lookupData, perms, onAction) {
@@ -20,17 +19,17 @@ export function renderScanResult(container, lookupData, perms, onAction) {
   // ── Info card ──────────────────────────────────────────────────────────────
   switch (type) {
     case 'item': {
-      const { name, category, status, is_voucher,
+      const { name, category, status,
               current_dept, current_group, holder_dept, current_person,
               dept_label, borrowable, borrow_eligible, borrow_reason } = lookupData;
 
       const holder = current_person?.name || current_group?.name
                    || holder_dept?.name || current_dept?.name || null;
-      const statusLabel = formatItemStatus(status, holder, is_voucher);
+      const statusLabel = formatItemStatus(status, holder);
 
       cardHtml = `
         <div class="scan-card">
-          <div class="scan-card-icon">${is_voucher ? '🎟' : '📦'}</div>
+          <div class="scan-card-icon">📦</div>
           <div class="scan-card-body">
             <div class="scan-card-name">${esc(name)}</div>
             ${category ? `<div class="scan-card-sub">${esc(category)}</div>` : ''}
@@ -39,43 +38,30 @@ export function renderScanResult(container, lookupData, perms, onAction) {
           </div>
         </div>`;
 
-      // Actions for regular items
-      if (!is_voucher) {
-        if (['checked-out'].includes(status)) {
-          const canReturn = has('checkin_equipment') || has('sub_checkin');
-          const canLend   = has('checkout_equipment') || has('sub_checkout');
-          if (canReturn) {
-            actionsHtml += actionBtn('Return equipment', 'checkin', lookupData);
-          }
-          if (canLend) {
-            actionsHtml += actionBtn(
-              holder ? `Add to lending list (transfer from ${holder})` : 'Add to lending list',
-              'checkout_start', lookupData
-            );
-          }
+      if (['checked-out'].includes(status)) {
+        const canReturn = has('checkin_equipment') || has('sub_checkin');
+        const canLend   = has('checkout_equipment') || has('sub_checkout');
+        if (canReturn) {
+          actionsHtml += actionBtn('Return equipment', 'checkin', lookupData);
         }
-        if (status === 'available') {
-          if (borrowable && has('person_borrow')) {
-            if (borrow_eligible) {
-              actionsHtml += actionBtn('Borrow (check out to me)', 'borrow_self', lookupData, 'primary');
-            } else {
-              const note = borrowReasonText(borrow_reason);
-              if (note) actionsHtml += `<div class="scan-restriction-note">${esc(note)}</div>`;
-            }
-          }
-          if (has('checkout_equipment') || has('sub_checkout')) {
-            actionsHtml += actionBtn('Start lending flow', 'checkout_start', lookupData);
-          }
+        if (canLend) {
+          actionsHtml += actionBtn(
+            holder ? `Add to lending list (transfer from ${holder})` : 'Add to lending list',
+            'checkout_start', lookupData
+          );
         }
       }
-
-      // Actions for vouchers
-      if (is_voucher) {
-        if (status === 'checked-out' && (has('validate_vouchers') || has('sub_checkout') || has('checkout_equipment'))) {
-          actionsHtml += actionBtn('Activate voucher', 'activate', lookupData, 'primary');
+      if (status === 'available') {
+        if (borrowable && has('person_borrow')) {
+          if (borrow_eligible) {
+            actionsHtml += actionBtn('Borrow (check out to me)', 'borrow_self', lookupData, 'primary');
+          } else {
+            const note = borrowReasonText(borrow_reason);
+            if (note) actionsHtml += `<div class="scan-restriction-note">${esc(note)}</div>`;
+          }
         }
-        if (status === 'activated' && has('validate_vouchers')) {
-          actionsHtml += actionBtn('Validate (mark as used)', 'validate', lookupData, 'primary');
+        if (has('checkout_equipment') || has('sub_checkout')) {
+          actionsHtml += actionBtn('Start lending flow', 'checkout_start', lookupData);
         }
       }
       break;
@@ -177,12 +163,9 @@ function actionBtn(label, action, data, variant = '') {
     data-action="${action}" data-payload="${payload}">${label}</button>`;
 }
 
-function formatItemStatus(status, holder, is_voucher) {
-  if (is_voucher) {
-    return { 'checked-out': 'Attributed — not activated', activated: 'Activated — ready to validate', used: 'Already validated', available: 'Available', retired: 'Retired' }[status] ?? status;
-  }
+function formatItemStatus(status, holder) {
   if (status === 'checked-out' && holder) return `Out — ${holder}`;
-  return { available: 'Available', 'checked-out': 'Checked out', activated: 'Activated', used: 'Used', retired: 'Retired' }[status] ?? status;
+  return { available: 'Available', 'checked-out': 'Checked out', retired: 'Retired' }[status] ?? status;
 }
 
 function statusClass(status) {

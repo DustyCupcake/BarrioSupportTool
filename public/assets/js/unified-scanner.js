@@ -217,11 +217,16 @@ function renderConfirm(container) {
 
   const needsArrival = isGroup && _groupDetail?.__id === entity.id
     && _groupDetail.enable_arrival_tracking && _groupDetail.arrival_status === 'expected';
-  const showEntForm = needsArrival && _groupDetail.enable_consumable_entitlements && _consumableTypesCache?.length;
+  // water_fill is excluded here — its real credit ledger is only ever written
+  // by the truck confirm/adhoc-fill flow, never by generic arrival distribution
+  // (the backend rejects it too; this just keeps it off the form in the first
+  // place so staff aren't offered a control that wouldn't do anything).
+  const arrivalConsumableTypes = (_consumableTypesCache || []).filter(ct => ct.key_name !== 'water_fill');
+  const showEntForm = needsArrival && _groupDetail.enable_consumable_entitlements && arrivalConsumableTypes.length;
 
   let arrivalForm = '';
   if (showEntForm) {
-    const itemInputs = _consumableTypesCache.map(ct => {
+    const itemInputs = arrivalConsumableTypes.map(ct => {
       const existing  = _groupDetail.entitlements.find(e => e.type_id === ct.id);
       const purchased = existing?.purchased ?? 0;
       const remaining = existing?.remaining ?? purchased;
@@ -534,27 +539,6 @@ async function handleLookup(qr) {
 
   const perms = _user?.permissions || [];
 
-  // If scanned in mid-checkout and got a voucher — warn
-  if (data.type === 'item' && data.is_voucher && _session.items.length > 0) {
-    inner.innerHTML = `
-      <div class="scan-card">
-        <div class="scan-card-icon">⚠️</div>
-        <div class="scan-card-body">
-          <div class="scan-card-name">Voucher scanned mid-checkout</div>
-          <div class="scan-card-sub">Handle this voucher separately or continue your checkout.</div>
-        </div>
-      </div>
-      <div class="scan-actions">
-        <button class="btn primary scan-action-btn" id="handle-voucher-btn">Handle voucher</button>
-        <button class="btn scan-action-btn" onclick="window._scanner.closeOverlay()">Continue checkout</button>
-      </div>`;
-    document.getElementById('handle-voucher-btn')?.addEventListener('click', () => {
-      _session = { entity: null, items: [], mode: 'scanning' };
-      handleLookup(qr);
-    });
-    return;
-  }
-
   renderScanResult(inner, data, perms, (action, payload) => {
     onScanAction(action, payload, qr, data);
   });
@@ -843,20 +827,6 @@ async function onScanAction(action, payload, rawQr, lookupData) {
 
     case 'checkin': {
       startCheckinFlow(rawQr, lookupData);
-      break;
-    }
-
-    case 'activate': {
-      await doAction(() => post('/items/activate', { qr: rawQr }), 'Activated');
-      overlay.style.display = 'none';
-      resumeCamera();
-      break;
-    }
-
-    case 'validate': {
-      await doAction(() => post('/items/use', { qr: rawQr }), 'Validated');
-      overlay.style.display = 'none';
-      resumeCamera();
       break;
     }
 

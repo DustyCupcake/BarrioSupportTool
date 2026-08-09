@@ -4,8 +4,7 @@ declare(strict_types=1);
 /**
  * Public (no-auth) endpoint for basic item information.
  * Used by the /item landing page when someone scans an equipment QR code.
- * Returns only non-sensitive data: name, type, status label, and whether
- * it is a water voucher (so the page can redirect appropriately).
+ * Returns only non-sensitive data: name, type, and status label.
  */
 function handle_item_info(): void {
     require_method('GET');
@@ -17,7 +16,7 @@ function handle_item_info(): void {
     }
 
     $stmt = db()->prepare(
-        'SELECT i.status, i.holder_type, i.holder_id, t.secure_qr, t.is_crate, t.deployment_destination,
+        'SELECT i.status, i.holder_type, i.holder_id, t.is_crate, t.deployment_destination,
                 t.category,
                 CONCAT(t.name, \' #\', i.item_number) AS display_name,
                 t.name AS type_name
@@ -44,7 +43,6 @@ function handle_item_info(): void {
         'name'                   => $item['display_name'],
         'type_name'              => $item['type_name'],
         'category'               => $item['category'],
-        'is_voucher'             => (bool) $item['secure_qr'],
         'is_crate'               => (bool) $item['is_crate'],
         'deployment_destination' => $item['deployment_destination'],
         'status'                 => $status_label,

@@ -10,6 +10,7 @@ let _toast;
 let _users          = [];
 let _depts          = [];
 let _isDeptAdmin    = false;
+let _isFullAdmin    = false;
 let _grantablePerms = [];
 let _myDeptId       = null;
 let _searchTimer    = null;
@@ -29,7 +30,13 @@ export async function initUsers(container, toast, user = null) {
   _toast = toast;
   const perms = user?.permissions ?? [];
   _isDeptAdmin    = perms.includes('manage_dept_users') && !perms.includes('manage_users');
-  _grantablePerms = _isDeptAdmin ? perms.filter(p => p !== 'manage_dept_users') : [];
+  _isFullAdmin    = perms.includes('manage_users');
+  // Full admins can grant any permission they hold too (the backend imposes no
+  // restriction for manage_users callers) — previously there was no UI for it
+  // at all, so e.g. view_fill_status had no way to reach a non-admin user.
+  _grantablePerms = _isDeptAdmin ? perms.filter(p => p !== 'manage_dept_users')
+                   : _isFullAdmin ? perms
+                   : [];
   _myDeptId       = _isDeptAdmin ? (user?.dept_ids?.[0] ?? null) : null;
 
   renderShell(container);
@@ -181,6 +188,16 @@ function openPanel(id) {
         }).join('')}
       </div>` : ''}
 
+      ${_grantablePerms.length ? `
+      <div class="user-panel-section">
+        <div class="user-panel-title">Permission overrides</div>
+        <p style="font-size:13px;color:var(--text2);margin-bottom:.75rem">
+          Grant or revoke individual permissions for this member, on top of their role defaults.
+          Changes take effect on their next login.
+        </p>
+        ${permissionToggles(u)}
+      </div>` : ''}
+
       <div class="user-panel-section">
         <div class="user-panel-title">Reset password</div>
         <div class="field">
@@ -209,12 +226,12 @@ function openPanel(id) {
   });
 }
 
-function buildPermissionsPanel(u) {
+function permissionToggles(u) {
   const existing = Object.fromEntries(
     (u.permission_overrides ?? []).map(o => [o.permission, o.granted])
   );
 
-  const toggles = _grantablePerms.map(p => `
+  return _grantablePerms.map(p => `
     <label class="perm-toggle" style="display:flex;align-items:center;gap:.5rem;padding:.35rem 0;cursor:pointer">
       <input type="checkbox" data-perm="${p}" data-uid="${u.id}"
         ${existing[p] === true ? 'checked' : ''}
@@ -223,7 +240,9 @@ function buildPermissionsPanel(u) {
       ${existing[p] !== undefined ? `<span style="font-size:11px;color:var(--text3)">(overridden)</span>` : ''}
     </label>
   `).join('');
+}
 
+function buildPermissionsPanel(u) {
   return `
     <div class="form-card user-panel">
       <div class="user-panel-header">
@@ -235,7 +254,7 @@ function buildPermissionsPanel(u) {
         <p style="font-size:13px;color:var(--text2);margin-bottom:.75rem">
           Grant or revoke permissions for this member. Changes take effect on their next login.
         </p>
-        ${toggles || '<div style="color:var(--text3);font-size:13px">No grantable permissions</div>'}
+        ${permissionToggles(u) || '<div style="color:var(--text3);font-size:13px">No grantable permissions</div>'}
       </div>
     </div>
   `;

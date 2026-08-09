@@ -17,7 +17,7 @@ function handle_lookup(): void {
                 i.require_home_location AS item_require_home,
                 i.require_any_location AS item_require_any,
                 i.spec_values, i.photo,
-                t.name AS type_name, t.category, t.secure_qr, t.borrowable, t.is_crate, t.deployment_destination,
+                t.name AS type_name, t.category, t.borrowable, t.is_crate, t.deployment_destination,
                 t.home_location_id AS type_home_loc_id,
                 t.require_home_location AS type_require_home,
                 t.require_any_location AS type_require_any,
@@ -82,7 +82,6 @@ function handle_lookup(): void {
         'name'                 => $item['display_name'],
         'category'             => $item['category'],
         'status'               => $item['status'],
-        'secure_qr'            => (bool)$item['secure_qr'],
         'equipment_type_id'    => (int)$item['equipment_type_id'],
         'dept_label'           => $item['dept_label'],
         'current_dept'         => $item['dept_id']

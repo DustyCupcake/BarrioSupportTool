@@ -30,7 +30,7 @@ function handle_scan_lookup(): void {
                 i.home_location_id AS item_home_loc_id,
                 i.require_home_location AS item_require_home,
                 i.require_any_location AS item_require_any,
-                t.name AS type_name, t.category, t.secure_qr, t.borrowable,
+                t.name AS type_name, t.category, t.borrowable,
                 t.home_location_id AS type_home_loc_id,
                 t.require_home_location AS type_require_home,
                 t.require_any_location AS type_require_any,
@@ -52,13 +52,11 @@ function handle_scan_lookup(): void {
     );
     $stmt->execute([$qr]);
     if ($item = $stmt->fetch()) {
-        $is_voucher = (bool)$item['secure_qr'];
         $result = [
             'type'      => 'item',
             'name'      => $item['display_name'],
             'category'  => $item['category'],
             'status'    => $item['status'],
-            'is_voucher'=> $is_voucher,
         ];
 
         if ($authed) {
@@ -133,11 +131,15 @@ function handle_scan_lookup(): void {
     }
 
     // ── 3. Group ─────────────────────────────────────────────────────────────
+    // Also matches fill_voucher_code — a separate code that resolves to the
+    // same group for fill-request purposes only. It is never written into
+    // shift_tokens.token, so unlike qr_code it can't be used to start a
+    // self-service session, even though it resolves here the same way.
     $stmt = db()->prepare(
         'SELECT id, name, arrival_status, enable_arrival_tracking, enable_consumable_entitlements
-         FROM groups WHERE qr_code = ?'
+         FROM groups WHERE qr_code = ? OR fill_voucher_code = ?'
     );
-    $stmt->execute([$qr]);
+    $stmt->execute([$qr, $qr]);
     if ($group = $stmt->fetch()) {
         $result = [
             'type'                          => 'group',

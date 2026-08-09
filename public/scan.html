@@ -63,12 +63,6 @@ if (!qr) {
         case 'entity_select':
           window.location.href = '/?scan=' + encodeURIComponent(qr);
           break;
-        case 'activate':
-          handleActivate(data, user);
-          break;
-        case 'validate':
-          handleValidate(data, user);
-          break;
       }
     });
   }).catch(err => {
@@ -94,29 +88,6 @@ async function handleBorrowSelf(data, user) {
   if (!result.error) setTimeout(() => location.reload(), 1200);
 }
 
-async function handleActivate(data, user) {
-  const csrf = await getCsrf();
-  const r = await fetch('/api/items/activate', {
-    method: 'POST', credentials: 'include',
-    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
-    body: JSON.stringify({ qr: data.qr_code }),
-  });
-  const result = await r.json();
-  showToast(result.success ? 'Activated' : (result.error ?? 'Error'));
-  if (result.success) setTimeout(() => location.reload(), 1200);
-}
-
-async function handleValidate(data, user) {
-  const csrf = await getCsrf();
-  const r = await fetch('/api/items/use', {
-    method: 'POST', credentials: 'include',
-    headers: { 'Content-Type': 'application/json', 'X-CSRF-Token': csrf },
-    body: JSON.stringify({ qr: data.qr_code }),
-  });
-  const result = await r.json();
-  showToast(result.success ? 'Validated' : (result.error ?? 'Error'));
-  if (result.success) setTimeout(() => location.reload(), 1200);
-}
 
 let _toastTimer;
 function showToast(msg) {

@@ -146,6 +146,11 @@ function renderResult(qr, data) {
     icon  = '✓';
     title = 'Sanitized';
     body  = `Water filled and sanitized on ${formatDate(last_sanitized_at ?? last_filled_at)}`;
+  } else if (fill_state === 'flagged') {
+    statusClass = 'flagged';
+    icon  = '⚠';
+    title = 'Fill flagged';
+    body  = `The truck crew flagged this fill on ${formatDate(last_filled_at)} — speak to production before drinking.`;
   } else {
     statusClass = 'ready';
     icon  = '🪣';

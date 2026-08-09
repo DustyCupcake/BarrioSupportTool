@@ -68,14 +68,6 @@ function renderWithData() {
     return;
   }
 
-  const voucherBlock = _data.is_voucher ? `
-    <div class="it-voucher-note">
-      <div class="it-section-title">💧 ${esc(i('voucherNote'))}</div>
-      <a href="/voucher?qr=${encodeURIComponent(qr)}" class="btn primary" style="margin-top:.6rem">
-        ${esc(i('checkVoucher'))}
-      </a>
-    </div>` : '';
-
   const statusKey   = { out: 'statusOut', available: 'statusIn', retired: 'statusRetired' }[_data.status] ?? 'statusIn';
   const statusLabel = i(statusKey);
 
@@ -130,8 +122,6 @@ function renderWithData() {
         ${esc(statusLabel)}
       </span>
     </div>
-
-    ${voucherBlock}
 
     ${logBtnBlock}
 

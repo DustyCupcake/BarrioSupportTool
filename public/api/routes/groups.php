@@ -211,6 +211,7 @@ function handle_group_arrival(): void {
     }
 
     $db = db();
+    $water_fill_id = water_fill_type_id($db);
     $db->beginTransaction();
     try {
         $stmt = $db->prepare(
@@ -238,6 +239,9 @@ function handle_group_arrival(): void {
             $type_id  = (int)($item['type_id'] ?? 0);
             $quantity = (int)($item['quantity'] ?? 0);
             if (!$type_id || $quantity <= 0) continue;
+            // water_fill's real credit ledger is only ever written by the truck
+            // confirm/adhoc-fill flow — never through generic arrival distribution.
+            if ($water_fill_id !== null && $type_id === $water_fill_id) continue;
 
             $db->prepare(
                 'INSERT INTO distribution_events
